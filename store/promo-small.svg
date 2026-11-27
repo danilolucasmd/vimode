@@ -1,0 +1,13 @@
+<!-- Chrome Web Store small promo tile, 440x280. Rendered to PNG with rsvg-convert. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280">
+  <rect width="440" height="280" fill="#2c292f"/>
+  <g transform="translate(40 76)">
+    <rect width="128" height="128" rx="28" fill="#a6e3a1"/>
+    <text x="64" y="92" font-family="JetBrainsMono Nerd Font Mono" font-weight="bold" font-size="104" fill="#1e1b22" text-anchor="middle">v</text>
+    <rect x="22" y="104" width="84" height="8" rx="4" fill="#1e1b22"/>
+  </g>
+  <text x="196" y="138" font-family="JetBrainsMono Nerd Font Mono" font-weight="bold" font-size="44" fill="#dddddd">Vimode</text>
+  <text x="196" y="170" font-family="JetBrainsMono Nerd Font Mono" font-size="15" fill="#a6e3a1">Vim keys from a dotfile</text>
+  <rect y="260" width="440" height="20" fill="#a6e3a1"/>
+  <text x="10" y="275" font-family="JetBrainsMono Nerd Font Mono" font-weight="bold" font-size="12" fill="#1e1b22">-- INSERT --</text>
+</svg>

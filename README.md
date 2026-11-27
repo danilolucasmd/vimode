@@ -32,7 +32,7 @@ Vimode is loaded unpacked:
 
 2. Open `brave://extensions` (or `chrome://extensions`), turn on Developer mode, click "Load unpacked" and choose the repo directory.
 
-3. On any web page, type `:importConfig` and Enter, then pick your config files (see below). Until a config is imported, `:` is the only key Vimode knows, so the command line can be reached.
+3. That is all: a fresh install loads the default keymap, [`defaults/vimoderc`](defaults/vimoderc), so the keys work at once (press `?` to see them). To use your own, run `:exportConfig` to download it as `vimoderc`, edit it, and on any web page type `:importConfig` and Enter, then pick it (see below). `:importDefaults` goes back to the defaults.
 
 The browser loads the extension straight from the repo directory, so after changing the code, run `:reloadExtension` (or press the reload button on Vimode's card). It reloads the tab it was run from; reload any other open tabs yourself.
 
@@ -140,6 +140,8 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 | Command | What it does |
 |---|---|
 | `importConfig` | Pick the config files to import (`vimoderc`, `style.css`, or both). |
+| `exportConfig` | Download the current config as `vimoderc` (and `style.css`, if one was imported), to edit and import again. |
+| `importDefaults` | Load the default keymap, `defaults/vimoderc`, replacing the imported one. An imported `style.css` is kept. |
 | `reloadExtension` | Reload Vimode from its directory, and the current tab with it. |
 
 ### Styles
@@ -155,6 +157,14 @@ An imported `style.css` styles the hints. Its rules come after Vimode's defaults
 ```css
 .vimode-hint { background: #fff785; box-shadow: none; }
 ```
+
+## Publishing
+
+`./pack.sh` builds `dist/vimode-<version>.zip` for the Chrome Web Store, with the manifest's `key` stripped (the store assigns its own ID and rejects a manifest that pins one). Bump `version` in `manifest.json` before each upload. The listing text, privacy answers and images are in `store/`.
+
+## Privacy
+
+Vimode collects no data. The config files you import are kept in the browser's extension storage and never sent anywhere.
 
 ## How it works
 

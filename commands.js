@@ -35,6 +35,8 @@ const VIMODE_COMMANDS = {
 	enterFindMode: { where: "page", desc: "Search the page for text, highlighting every match", group: "Find" },
 	performFind: { where: "page", desc: "Go to the next match of the last search", group: "Find" },
 	performBackwardsFind: { where: "page", desc: "Go to the previous match of the last search", group: "Find" },
+	importDefaults: { where: "page", desc: "Load the default keymap, replacing the imported one", group: "Vimode" },
+	exportConfig: { where: "page", desc: "Download the current config, to edit and import again", group: "Vimode" },
 	importConfig: { where: "page", desc: "Import the config: pick vimoderc, style.css, or both", group: "Vimode" },
 	reloadExtension: { where: "tab", desc: "Reload Vimode from its directory, and this tab with it", group: "Vimode" },
 	nextTab: { where: "tab", desc: "Go to the next tab", group: "Tabs" },
@@ -86,6 +88,21 @@ const VIMODE_DEFAULT_SETTINGS = {
 	// turns the panel off.
 	keyhintDelay: 500,
 };
+
+// Stores the raw config files ({ keymap, css }, each { name, text }) and what
+// they parse to, where every tab picks the config up. Returns the parse.
+async function vimodeSaveConfig(source) {
+	const parsed = vimodeParse(source.keymap ? source.keymap.text : "");
+	await chrome.storage.local.set({
+		source,
+		config: {
+			keymap: parsed.keymap,
+			settings: parsed.settings,
+			css: source.css ? source.css.text : "",
+		},
+	});
+	return parsed;
+}
 
 // "gbo" -> ["g", "b", "o"]; "<c-o>x" -> ["<c-o>", "x"]. A bracketed name is
 // one key; its modifiers are lowercased and sorted so <C-A-x> and <a-c-x>

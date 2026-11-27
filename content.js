@@ -37,8 +37,9 @@
 			for (let i = 1; i < tokens.length; i++) prefixes.add(tokens.slice(0, i).join(" "));
 		}
 	}
-	// Until a config is imported, `:` is the one key, so that
-	// `:importConfig` is reachable.
+	// The default keymap is stored when the extension is installed; until that
+	// lands (or if it failed), `:` is the one key, so `:importConfig` and
+	// `:importDefaults` are reachable.
 	const BOOTSTRAP = { keymap: { ":": "enterCommandMode" } };
 	chrome.storage.local.get("config").then(({ config }) => loadConfig(config || BOOTSTRAP));
 	chrome.storage.onChanged.addListener((changes, area) => {
@@ -229,6 +230,12 @@
 		showHelp: () => toggleHelp(),
 		enterFindMode: () => openFind(),
 		importConfig: () => importConfig(),
+		exportConfig: () => exportConfig(),
+		importDefaults: () => {
+			chrome.runtime.sendMessage({ importDefaults: true })
+				.catch(() => false)
+				.then((ok) => flash(ok ? "Loaded the default keymap" : "Could not load the default keymap"));
+		},
 		performFind: (n) => findNext(n, 1),
 		performBackwardsFind: (n) => findNext(n, -1),
 		focusInput: (n) => {
@@ -260,7 +267,7 @@
 	// Drawn by the top frame (the command line, the help screen) or kept there
 	// (the search, which covers the top document only), so a subframe hands
 	// them up.
-	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "enterFindMode", "performFind", "performBackwardsFind"]);
+	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "exportConfig", "enterFindMode", "performFind", "performBackwardsFind"]);
 
 	// ---- link hints ---------------------------------------------------------------
 	//
@@ -883,15 +890,7 @@
 				names.push(file.name);
 			}
 			if (!names.length) return;
-			const parsed = vimodeParse(source.keymap ? source.keymap.text : "");
-			await chrome.storage.local.set({
-				source,
-				config: {
-					keymap: parsed.keymap,
-					settings: parsed.settings,
-					css: source.css ? source.css.text : "",
-				},
-			});
+			const parsed = await vimodeSaveConfig(source);
 			const skipped = parsed.errors.length;
 			flash(`Imported ${names.join(", ")}${skipped ? `, skipped ${skipped} line${skipped > 1 ? "s" : ""}` : ""}`);
 			if (skipped) {
@@ -899,6 +898,29 @@
 			}
 		});
 		input.click();
+	}
+
+	// The stored files as downloads, keymap as vimoderc: a starting point for
+	// your own config, the defaults included. A download link rather than the
+	// downloads API, which would be one more permission. A text/plain blob
+	// would be saved as vimoderc.txt.
+	async function exportConfig() {
+		const { source = {} } = await chrome.storage.local.get("source");
+		const files = [];
+		if (source.keymap) files.push(["vimoderc", source.keymap.text]);
+		if (source.css) files.push(["style.css", source.css.text]);
+		if (!files.length) {
+			flash("Nothing to export; :importDefaults loads the defaults");
+			return;
+		}
+		for (const [name, text] of files) {
+			const a = document.createElement("a");
+			a.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+			a.download = name;
+			a.click();
+			setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+		}
+		flash(`Exported ${files.map(([name]) => name).join(", ")}`);
 	}
 
 	function closeHelp() {

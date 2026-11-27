@@ -13,6 +13,19 @@ chrome.storage.local.get("reloadTab").then(({ reloadTab }) => {
 	}
 });
 
+// The bundled keymap (defaults/vimoderc), stored on a fresh install so the
+// keys work at once, and by importDefaults. An imported style.css is kept.
+async function importDefaults() {
+	const text = await (await fetch(chrome.runtime.getURL("defaults/vimoderc"))).text();
+	const { source = {} } = await chrome.storage.local.get("source");
+	source.keymap = { name: "defaults", text };
+	await vimodeSaveConfig(source);
+}
+
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+	if (reason === "install") importDefaults().catch(() => {});
+});
+
 // ---- tab commands ---------------------------------------------------------
 
 // The tab each window showed before the current one, for visitPreviousTab.
@@ -199,7 +212,7 @@ async function hintKey(tab, key) {
 
 chrome.tabs.onRemoved.addListener((tabId) => hintSessions.delete(tabId));
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 	if (!msg || !sender.tab) return;
 	if (msg.tabCommand in tabCommands) {
 		tabCommands[msg.tabCommand](sender.tab, Math.max(1, msg.count | 0)).catch(() => {});
@@ -207,6 +220,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 		startHints(sender.tab, VIMODE_HINT_MODES[msg.hintsStart]).catch(() => {});
 	} else if (typeof msg.hintsKey === "string") {
 		hintKey(sender.tab, msg.hintsKey).catch(() => {});
+	} else if (msg.importDefaults) {
+		// Answered once stored, so the page can say whether it worked.
+		importDefaults().then(() => sendResponse(true), () => sendResponse(false));
+		return true;
 	} else if (typeof msg.openUrl === "string") {
 		chrome.tabs.create({ url: msg.openUrl, active: !!msg.active, openerTabId: sender.tab.id }).catch(() => {});
 	}
