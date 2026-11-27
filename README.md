@@ -1,8 +1,8 @@
-# vimode
+# Vimode
 
 Vim-style keyboard navigation for Chromium browsers, configured from a dotfile, with a qutebrowser-style status bar.
 
-vimode gives a browser a normal mode and an insert mode, like Vimium, and takes its keymap from a plain text file instead of a settings form, so the keymap can live in your dotfiles and follow you from machine to machine. Import the file on the options page, and again after each change.
+Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes its keymap from a plain text file instead of a settings form, so the keymap can live in your dotfiles and follow you from machine to machine. Import the file on the options page, and again after each change.
 
 ## Features
 
@@ -17,7 +17,7 @@ vimode gives a browser a normal mode and an insert mode, like Vimium, and takes 
 
 ## Install
 
-vimode is loaded unpacked:
+Vimode is loaded unpacked:
 
 1. Clone the repo:
 
@@ -27,13 +27,13 @@ vimode is loaded unpacked:
 
 2. Open `brave://extensions` (or `chrome://extensions`), turn on Developer mode, click "Load unpacked" and choose the repo directory.
 
-3. Open vimode's options page (right-click the extension icon, then Options) and import your config files (see below).
+3. Open Vimode's options page (right-click the extension icon, then Options) and import your config files (see below).
 
-The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on vimode's card and reload open tabs.
+The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on Vimode's card and reload open tabs.
 
 ## Configuration
 
-The config is one or two files, imported on the options page: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. vimode keeps a copy, so import again after editing. The page shows what was imported, when, and any lines that were skipped.
+The config is one or two files, imported on the options page: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. Vimode keeps a copy, so import again after editing. The page shows what was imported, when, and any lines that were skipped.
 
 The file is the whole keymap: nothing is built in, so a key does something only if a line maps it. The syntax follows Vimium's:
 
@@ -123,7 +123,7 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 
 ### Styles
 
-An imported `style.css` styles the hints. Its rules come after vimode's defaults (Vimium's yellow labels), so they win:
+An imported `style.css` styles the hints. Its rules come after Vimode's defaults (Vimium's yellow labels), so they win:
 
 | Selector | What it is |
 |---|---|
@@ -145,7 +145,7 @@ Link hints follow Vimium's design. The background worker asks every frame how ma
 
 ## Limitations
 
-- Browsers keep extensions off their own pages (`chrome://` and `brave://` pages, the new tab page, the Web Store), so vimode does nothing there.
+- Browsers keep extensions off their own pages (`chrome://` and `brave://` pages, the new tab page, the Web Store), so Vimode does nothing there.
 - Scrolling moves the page itself. A site that scrolls an inner panel instead of the page does not respond to the scroll commands yet.
 - The status bar overlays the bottom 20px of the page, since an extension cannot resize the viewport.
 - `web.whatsapp.com` is excluded in `manifest.json`, since a page that is all typing has no use for normal mode. Edit `exclude_matches` to change that.
