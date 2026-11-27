@@ -44,7 +44,13 @@
 			for (let i = 1; i < tokens.length; i++) prefixes.add(tokens.slice(0, i).join(" "));
 		}
 	}
-	chrome.storage.local.get("config").then(({ config }) => loadConfig(config || {}));
+	chrome.storage.local.get("config").then(({ config }) => {
+		loadConfig(config || {});
+		// The settings arrive after the page may have focused a field
+		// (Google Docs focuses its editor first thing), so grabBackFocus is
+		// applied now too, not only to focus that comes later.
+		grabBack();
+	});
 	chrome.storage.onChanged.addListener((changes, area) => {
 		if (area === "local" && changes.config) loadConfig(changes.config.newValue);
 	});
@@ -90,10 +96,58 @@
 	// the first keys meant for the keymap. Until the user has pressed a key or
 	// clicked, such a focus is undone.
 	let userActed = false;
-	window.addEventListener("mousedown", () => { userActed = true; }, true);
+	window.addEventListener("mousedown", () => markActed(), true);
 	window.addEventListener("focusin", (e) => {
 		if (!userActed && settings.grabBackFocus && editable(e.target)) e.target.blur();
 	}, true);
+
+	function grabBack() {
+		const el = deepActive();
+		if (!userActed && settings.grabBackFocus && editable(el)) el.blur();
+	}
+
+	// ---- the tab's mode, across frames ------------------------------------------
+	//
+	// Insert mode belongs to the tab, not the frame a key was pressed in:
+	// Google Docs takes `i` in the top frame and then moves focus into its
+	// hidden typing frame, so Escape lands in a different frame from the one
+	// that set the mode. So Escape anywhere leaves insert mode everywhere, the
+	// top frame tells the others whether the tab is in insert mode
+	// (tabInsert), and the first key or click anywhere counts as the user
+	// acting in every frame, for grabBackFocus. Subframes tell the top frame,
+	// which passes it on to all of them.
+	let tabInsert = false;
+
+	function toTab(msg) {
+		if (isTop) {
+			if (msg.leaveInsert) insertMode = false;
+			if (msg.acted) userActed = true;
+			toFrames(msg);
+		} else {
+			window.top.postMessage({ [TAG]: msg }, "*");
+		}
+	}
+
+	// Filled in by the top frame, which knows every subframe from its reports.
+	let toFrames = () => {};
+
+	function markActed() {
+		if (userActed) return;
+		userActed = true;
+		toTab({ acted: true });
+	}
+
+	if (!isTop) {
+		window.addEventListener("message", (e) => {
+			if (e.source !== window.top) return;
+			const msg = e.data && typeof e.data === "object" ? e.data[TAG] : undefined;
+			if (!msg || typeof msg !== "object") return;
+			if (msg.leaveInsert) insertMode = false;
+			if (msg.acted) userActed = true;
+			if (typeof msg.tabInsert === "boolean") tabInsert = msg.tabInsert;
+			if (msg.leaveInsert) changed();
+		});
+	}
 
 	// ---- keys -------------------------------------------------------------------
 
@@ -119,10 +173,26 @@
 		return mods.length || key.length > 1 ? `<${[...mods, key].join("-")}>` : key;
 	}
 
+	// A key Vimode acts on is kept from the page, and so is its release: a
+	// keyup on its own is enough for some pages to act (Google Docs refocuses
+	// its editor on one, which is insert mode right after Escape left it).
+	const swallowed = new Set();
+	let afterSwallowedKeyup = () => {};
+
 	function swallow(e) {
 		e.preventDefault();
 		e.stopImmediatePropagation();
+		if (e.type === "keydown") swallowed.add(e.code);
 	}
+
+	window.addEventListener("keyup", (e) => {
+		if (!swallowed.delete(e.code)) return;
+		e.preventDefault();
+		e.stopImmediatePropagation();
+		afterSwallowedKeyup(e);
+	}, true);
+	// A key let go while this window had lost focus never comes back here.
+	window.addEventListener("blur", () => swallowed.clear());
 
 	function reset() {
 		pending = [];
@@ -130,6 +200,10 @@
 	}
 
 	function onKeydown(e) {
+		// Only keys really pressed: Google Docs re-sends what is typed in its
+		// editor to the top page as synthetic events, which would run the
+		// keymap on text being typed.
+		if (!e.isTrusted) return;
 		if (e.isComposing) return;
 		if (commandKey(e)) return;
 		if (helpKey(e)) return;
@@ -137,17 +211,17 @@
 			hintKeydown(e);
 			return;
 		}
-		userActed = true;
+		markActed();
 		const t = token(e);
 		if (!t) return;
 
 		if (t === "<esc>") {
-			if (insertMode) {
+			const field = editable(deepActive()) ? deepActive() : null;
+			if (insertMode || field || tabInsert) {
 				insertMode = false;
+				if (field) field.blur();
 				swallow(e);
-			} else if (editable(deepActive())) {
-				deepActive().blur();
-				swallow(e);
+				toTab({ leaveInsert: true });
 			} else if (pending.length || count) {
 				reset();
 				swallow(e);
@@ -193,23 +267,126 @@
 
 	// ---- commands ---------------------------------------------------------------
 
-	const scroller = () => document.scrollingElement || document.documentElement;
-	const by = (x, y) => window.scrollBy({ left: x, top: y, behavior: "instant" });
-	const to = (x, y) => window.scrollTo({ left: x, top: y, behavior: "instant" });
+	// ---- scrolling -------------------------------------------------------------
+	//
+	// What a scroll command moves, as Vimium picks it: the panel last clicked
+	// in, if it scrolls that way; else the page, if it does; else the panel
+	// under the middle of the screen; else the largest one on screen. Apps
+	// that keep the page still and scroll a panel (Google Docs, Gmail, chat
+	// apps) are why the last three exist. null when nothing in this frame
+	// scrolls that way, and a subframe then hands the command to the top
+	// frame: Google Docs' keys land in a hidden typing frame.
+
+	const OVERFLOWS = new Set(["auto", "scroll", "overlay"]);
+	let lastClicked = null;
+	window.addEventListener("mousedown", (e) => { lastClicked = e.composedPath()[0]; }, true);
+
+	function scrolls(el, axis) {
+		const room = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+		if (room < 2) return false;
+		const style = getComputedStyle(el);
+		return OVERFLOWS.has(axis === "y" ? style.overflowY : style.overflowX);
+	}
+
+	function pageScrolls(axis) {
+		const root = document.scrollingElement || document.documentElement;
+		if (!root) return false;
+		const room = axis === "y" ? root.scrollHeight - window.innerHeight : root.scrollWidth - window.innerWidth;
+		if (room < 2) return false;
+		const hidden = (el) => el && getComputedStyle(el)[axis === "y" ? "overflowY" : "overflowX"] === "hidden";
+		return !hidden(document.documentElement) && !(document.body && hidden(document.body) && root === document.body);
+	}
+
+	function scrollingAncestor(node, axis) {
+		for (let el = node; el; el = el.parentElement || (el.getRootNode && el.getRootNode().host)) {
+			if (el === document.body || el === document.documentElement) return null;
+			if (el instanceof Element && scrolls(el, axis)) return el;
+		}
+		return null;
+	}
+
+	function largestScroller(axis) {
+		let best = null;
+		let bestArea = 0;
+		for (const el of document.querySelectorAll("body *")) {
+			const room = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+			if (room < 2) continue;
+			const r = el.getBoundingClientRect();
+			const w = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+			const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+			if (w <= 0 || h <= 0 || w * h <= bestArea || !scrolls(el, axis)) continue;
+			best = el;
+			bestArea = w * h;
+		}
+		return best;
+	}
+
+	// Whether this frame is on screen in its parent. Google Docs types into a
+	// frame parked off-screen, which can scroll but shows nothing. A
+	// cross-origin frame's position is not readable, so it counts as shown.
+	function frameShown() {
+		try {
+			const frame = window.frameElement;
+			if (!frame) return true;
+			const r = frame.getBoundingClientRect();
+			const parent = window.parent;
+			return r.width > 1 && r.height > 1 && r.bottom > 0 && r.right > 0
+				&& r.top < parent.innerHeight && r.left < parent.innerWidth;
+		} catch {
+			return true;
+		}
+	}
+
+	// window for the page, an element for a panel, or null.
+	function scrollTarget(axis) {
+		if (!isTop && !frameShown()) return null;
+		const clicked = lastClicked && lastClicked.isConnected && scrollingAncestor(lastClicked, axis);
+		if (clicked) return clicked;
+		if (pageScrolls(axis)) return window;
+		const middle = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+		return (middle && scrollingAncestor(middle, axis)) || largestScroller(axis);
+	}
+
+	// amount(viewport): how far, given the target's visible size.
+	function scrollBy(axis, amount) {
+		const target = scrollTarget(axis);
+		if (!target) return false;
+		const size = target === window
+			? (axis === "y" ? window.innerHeight : window.innerWidth)
+			: (axis === "y" ? target.clientHeight : target.clientWidth);
+		const d = amount(size);
+		target.scrollBy({ left: axis === "x" ? d : 0, top: axis === "y" ? d : 0, behavior: "instant" });
+		return true;
+	}
+
+	function scrollToEdge(axis, end) {
+		const target = scrollTarget(axis);
+		if (!target) return false;
+		const el = target === window ? (document.scrollingElement || document.documentElement) : target;
+		const max = axis === "y" ? el.scrollHeight : el.scrollWidth;
+		target.scrollTo({ [axis === "y" ? "top" : "left"]: end ? max : 0, behavior: "instant" });
+		return true;
+	}
+
+	const step = () => settings.scrollStepSize;
+
+	// Each returns false when nothing here scrolls that way (see above).
+	const scrollCommands = {
+		scrollDown: (n) => scrollBy("y", () => step() * n),
+		scrollUp: (n) => scrollBy("y", () => -step() * n),
+		scrollLeft: (n) => scrollBy("x", () => -step() * n),
+		scrollRight: (n) => scrollBy("x", () => step() * n),
+		scrollPageDown: (n) => scrollBy("y", (size) => (size / 2) * n),
+		scrollPageUp: (n) => scrollBy("y", (size) => -(size / 2) * n),
+		scrollFullPageDown: (n) => scrollBy("y", (size) => size * n),
+		scrollFullPageUp: (n) => scrollBy("y", (size) => -size * n),
+		scrollToTop: () => scrollToEdge("y", false),
+		scrollToBottom: () => scrollToEdge("y", true),
+		scrollToLeft: () => scrollToEdge("x", false),
+		scrollToRight: () => scrollToEdge("x", true),
+	};
 
 	const pageCommands = {
-		scrollDown: (n) => by(0, settings.scrollStepSize * n),
-		scrollUp: (n) => by(0, -settings.scrollStepSize * n),
-		scrollLeft: (n) => by(-settings.scrollStepSize * n, 0),
-		scrollRight: (n) => by(settings.scrollStepSize * n, 0),
-		scrollPageDown: (n) => by(0, (window.innerHeight / 2) * n),
-		scrollPageUp: (n) => by(0, -(window.innerHeight / 2) * n),
-		scrollFullPageDown: (n) => by(0, window.innerHeight * n),
-		scrollFullPageUp: (n) => by(0, -window.innerHeight * n),
-		scrollToTop: () => to(window.scrollX, 0),
-		scrollToBottom: () => to(window.scrollX, scroller().scrollHeight),
-		scrollToLeft: () => to(0, window.scrollY),
-		scrollToRight: () => to(scroller().scrollWidth, window.scrollY),
 		goBack: (n) => history.go(-n),
 		goForward: (n) => history.go(n),
 		goUp: (n) => {
@@ -269,6 +446,10 @@
 			chrome.runtime.sendMessage({ hintsStart: command }).catch(() => {});
 		} else if (TOP_ONLY.has(command) && !isTop) {
 			window.top.postMessage({ [TAG]: { topCommand: command, count: n } }, "*");
+		} else if (Object.hasOwn(scrollCommands, command)) {
+			if (!scrollCommands[command](n) && !isTop) {
+				window.top.postMessage({ [TAG]: { topCommand: command, count: n } }, "*");
+			}
 		} else if (pageCommands[command]) {
 			pageCommands[command](n);
 		}
@@ -531,7 +712,7 @@
 		const m = markers[index];
 		if (!m) return;
 		const el = m.el;
-		userActed = true;
+		markActed();
 		flashElement(el);
 		const link = el.closest("a[href], area[href]");
 		const url = link && link.href && !/^javascript:/i.test(link.href) ? link.href : null;
@@ -566,8 +747,10 @@
 
 	// ---- reporting, and the bar ---------------------------------------------------
 
+	// A focused field counts only while this frame has focus; `i` counts for
+	// the tab wherever focus has gone since (see tabInsert).
 	const frameState = () => ({
-		insert: document.hasFocus() && insertNow(),
+		insert: insertMode || (document.hasFocus() && insertNow()),
 		keys: count + pending.join(""),
 		pending: [...pending],
 	});
@@ -611,11 +794,15 @@
 	// Top frame: its own state plus every subframe's last report, keyed by the
 	// frame's window so a frame that reports twice replaces its old one.
 	const frames = new Map();
+	toFrames = (msg) => {
+		for (const win of frames.keys()) win.postMessage({ [TAG]: msg }, "*");
+	};
 	window.addEventListener("message", (e) => {
 		const msg = e.data && typeof e.data === "object" ? e.data[TAG] : undefined;
 		if (!msg || typeof msg !== "object") return;
 		if (typeof msg.flash === "string") flash(msg.flash);
-		else if (TOP_ONLY.has(msg.topCommand)) run(msg.topCommand, Math.max(1, Number(msg.count) || 1));
+		else if (msg.leaveInsert || msg.acted) toTab(msg);
+		else if (TOP_ONLY.has(msg.topCommand) || Object.hasOwn(scrollCommands, msg.topCommand)) run(msg.topCommand, Math.max(1, Number(msg.count) || 1));
 		else frames.set(e.source, msg);
 		changed();
 	});
@@ -794,6 +981,10 @@
 			if (state.insert) insert = true;
 			if (state.keys) keys = state.keys;
 			if (state.pending && state.pending.length) pendingTokens = state.pending;
+		}
+		if (insert !== tabInsert) {
+			tabInsert = insert;
+			toFrames({ tabInsert });
 		}
 		const b = bar();
 		const html = document.documentElement;
@@ -1605,14 +1796,12 @@
 		if (el && el.isConnected && (!active || active === document.body)) el.focus({ preventScroll: true });
 	}
 
+	afterSwallowedKeyup = (e) => {
+		if (closingKeys.delete(e.code)) restoreFocus();
+	};
 	for (const type of ["keypress", "keyup"]) {
 		window.addEventListener(type, (e) => {
-			if (type === "keyup" && closingKeys.delete(e.code)) {
-				swallow(e);
-				restoreFocus();
-			} else if (commandOpen && e.target === host) {
-				e.stopImmediatePropagation();
-			}
+			if (commandOpen && e.target === host) e.stopImmediatePropagation();
 		}, true);
 	}
 })();
