@@ -127,6 +127,7 @@
 	function onKeydown(e) {
 		if (e.isComposing) return;
 		if (commandKey(e)) return;
+		if (helpKey(e)) return;
 		if (hintMode) {
 			hintKeydown(e);
 			return;
@@ -226,6 +227,10 @@
 		enterCommandMode: () => {
 			if (isTop) openCommandLine();
 			else window.top.postMessage({ [TAG]: { openCommandLine: true } }, "*");
+		},
+		showHelp: () => {
+			if (isTop) toggleHelp();
+			else window.top.postMessage({ [TAG]: { toggleHelp: true } }, "*");
 		},
 		focusInput: (n) => {
 			const visible = (el) => {
@@ -571,8 +576,10 @@
 	// that change it with pushState. Only a page on screen does any work.
 	setInterval(() => { if (!document.hidden) changed(); }, 250);
 
-	// Replaced in the top frame, the only one with a command line.
+	// Replaced in the top frame, the only one with a command line and a help
+	// screen.
 	let commandKey = () => false;
+	let helpKey = () => false;
 
 	if (!isTop) return;
 
@@ -584,6 +591,7 @@
 		if (!msg || typeof msg !== "object") return;
 		if (typeof msg.flash === "string") flash(msg.flash);
 		else if (msg.openCommandLine) openCommandLine();
+		else if (msg.toggleHelp) toggleHelp();
 		else frames.set(e.source, msg);
 		changed();
 	});
@@ -666,6 +674,30 @@
 			}
 			.keyhint.open { display: grid; grid-template-columns: auto auto; column-gap: 24px; }
 			.keyhint .typed { color: #8a8590; }
+			.help {
+				position: fixed; inset: 0; z-index: 2147483647; display: none;
+				align-items: center; justify-content: center;
+				background: rgba(0, 0, 0, 0.45); pointer-events: auto;
+			}
+			.help.open { display: flex; }
+			.help .panel {
+				width: min(920px, calc(100vw - 48px)); max-height: calc(100vh - 96px);
+				overflow-y: auto; overflow-x: hidden;
+				box-sizing: border-box; padding: 18px 24px; border-radius: 10px;
+				background: #2c292f; color: #dddddd; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+				font: 12px/20px "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+			}
+			.help h1 { margin: 0 0 12px; font-size: 15px; color: #cba6f7; }
+			.help .groups { columns: 2 380px; column-gap: 32px; }
+			.help section { break-inside: avoid; margin-bottom: 16px; }
+			.help h2 {
+				margin: 0 0 4px; padding-bottom: 2px; font-size: 12px; color: #cba6f7;
+				border-bottom: 1px solid #4a4452;
+			}
+			.help .row { display: grid; grid-template-columns: 11ch minmax(0, 1fr); column-gap: 12px; }
+			.help .row span:last-child { white-space: normal; }
+			.help .keys { color: #a6e3a1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+			.help .hint { margin-top: 4px; color: #8a8590; }
 			.keyhint .rest { color: #cba6f7; font-weight: 600; }
 			.completion .category {
 				padding: 0 8px; background: #231f26; color: #cba6f7; font-weight: 600;
@@ -680,10 +712,15 @@
 		</style>
 		<div class="completion"></div>
 		<div class="keyhint"></div>
+		<div class="help"><div class="panel"></div></div>
 		<div class="bar"><span class="cmd">:<input spellcheck="false" autocomplete="off"></span><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
 		host.box = root.querySelector(".bar");
 		host.completion = root.querySelector(".completion");
 		host.keyhint = root.querySelector(".keyhint");
+		host.help = root.querySelector(".help");
+		host.help.addEventListener("mousedown", (e) => {
+			if (e.target === host.help) closeHelp();
+		});
 		host.input = root.querySelector(".cmd input");
 		host.mode = root.querySelector(".mode");
 		host.url = root.querySelector(".url");
@@ -733,6 +770,87 @@
 		b.box.style.filter = inverted ? "invert(100%) hue-rotate(180deg)" : "";
 		b.completion.style.filter = b.box.style.filter;
 	}
+
+	// ---- the help screen -----------------------------------------------------------
+	//
+	// Vimium's `?`: every mapped key, grouped under the headings commands.js
+	// gives them, with each command's description. Escape or showHelp's key
+	// closes it, as does a click outside the panel; j and k scroll it. It is
+	// built from the current keymap each time it opens, so it never lags
+	// behind an import.
+
+	let helpOpen = false;
+
+	function toggleHelp() {
+		if (helpOpen) closeHelp();
+		else openHelp();
+	}
+
+	function openHelp() {
+		const b = bar();
+		const byCommand = bindings();
+		const groups = new Map(["Modes", "Scrolling", "Navigation", "Tabs", "Link hints"].map((g) => [g, []]));
+		for (const [name, { desc, group }] of Object.entries(VIMODE_COMMANDS)) {
+			if (!byCommand[name]) continue;
+			if (!groups.has(group)) groups.set(group, []);
+			groups.get(group).push([byCommand[name].join(" "), desc]);
+		}
+		const panel = b.help.querySelector(".panel");
+		panel.replaceChildren();
+		const title = document.createElement("h1");
+		title.textContent = "Vimode";
+		const columns = document.createElement("div");
+		columns.className = "groups";
+		for (const [group, rows] of groups) {
+			if (!rows.length) continue;
+			const section = document.createElement("section");
+			const h = document.createElement("h2");
+			h.textContent = group;
+			section.append(h);
+			for (const [keys, desc] of rows) {
+				const row = document.createElement("div");
+				row.className = "row";
+				const k = document.createElement("span");
+				k.className = "keys";
+				k.textContent = keys;
+				k.title = keys;
+				const d = document.createElement("span");
+				d.textContent = desc;
+				row.append(k, d);
+				section.append(row);
+			}
+			columns.append(section);
+		}
+		const foot = document.createElement("div");
+		foot.className = "hint";
+		foot.textContent = "Escape closes this. j and k scroll it.";
+		panel.append(title, columns, foot);
+		panel.scrollTop = 0;
+		b.help.style.filter = b.box.style.filter;
+		b.help.classList.add("open");
+		helpOpen = true;
+		// Keys for the help screen are read here, in the top frame, so focus
+		// comes out of any iframe it was in (Google Docs' editor, say).
+		if (document.activeElement && document.activeElement.tagName === "IFRAME") document.activeElement.blur();
+	}
+
+	function closeHelp() {
+		helpOpen = false;
+		bar().help.classList.remove("open");
+	}
+
+	helpKey = (e) => {
+		if (!helpOpen) return false;
+		const t = token(e);
+		if (!t) return true;
+		swallow(e);
+		const panel = bar().help.querySelector(".panel");
+		const showHelpKeys = Object.entries(keymap).filter(([, c]) => c === "showHelp").map(([k]) => k);
+		if (t === "<esc>" || showHelpKeys.includes(t)) closeHelp();
+		else if (t === "j" || t === "<down>") panel.scrollBy(0, 60);
+		else if (t === "k" || t === "<up>") panel.scrollBy(0, -60);
+		return true;
+	};
 
 	// ---- the key hint -------------------------------------------------------------
 	//

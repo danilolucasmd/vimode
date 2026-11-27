@@ -12,6 +12,7 @@ Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes 
 - **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
 - **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
 - **Works in every frame,** including Google Docs, whose editor types into a hidden iframe.
+- **A help screen,** like Vimium's. The key mapped to `showHelp` (`?` is the natural choice) shows every mapped key, grouped, with what it does. Escape closes it.
 - **A key hint,** like qutebrowser's. Pause halfway through a key sequence (after `g`, say) and a panel above the status bar lists every mapping that continues it, with its command.
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
@@ -78,6 +79,7 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 |---|---|
 | `enterInsertMode` | Insert mode until Escape. |
 | `enterCommandMode` | Open the command line. |
+| `showHelp` | Show every mapped key, grouped, with what it does. Escape or the same key closes it. |
 | `focusInput` | Focus the first visible text field (or the nth, with a count). |
 
 **Scrolling**
