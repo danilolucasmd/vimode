@@ -769,7 +769,13 @@
 			renderCompletion();
 		});
 		// Clicking away from a search keeps it, as Enter does.
-		host.input.addEventListener("blur", () => (promptKind === "find" ? acceptFind() : closeCommandLine()));
+		host.input.addEventListener("blur", () => {
+			// Clicked away: focus went where the click put it, so it is not
+			// given back.
+			if (commandOpen) returnFocus = null;
+			if (promptKind === "find") acceptFind();
+			else closeCommandLine();
+		});
 		return host;
 	}
 
@@ -881,7 +887,7 @@
 		helpOpen = true;
 		// Keys for the help screen are read here, in the top frame, so focus
 		// comes out of any iframe it was in (Google Docs' editor, say).
-		if (document.activeElement && document.activeElement.tagName === "IFRAME") document.activeElement.blur();
+		leaveFrame();
 	}
 
 	// ---- importing the config -------------------------------------------------
@@ -980,7 +986,11 @@
 		swallow(e);
 		const panel = bar().help.querySelector(".panel");
 		const showHelpKeys = Object.entries(keymap).filter(([, c]) => c === "showHelp").map(([k]) => k);
-		if (t === "<esc>" || showHelpKeys.includes(t)) closeHelp();
+		if (t === "<esc>" || showHelpKeys.includes(t)) {
+			// See returnFocus.
+			closingKeys.add(e.code);
+			closeHelp();
+		}
 		else if (t === "j" || t === "<down>") panel.scrollBy(0, 60);
 		else if (t === "k" || t === "<up>") panel.scrollBy(0, -60);
 		return true;
@@ -1296,7 +1306,7 @@
 		renderCompletion();
 		// Out of any iframe that had focus, or its keys would never reach the
 		// prompt.
-		if (document.activeElement && document.activeElement.tagName === "IFRAME") document.activeElement.blur();
+		leaveFrame();
 		b.input.focus();
 	}
 
@@ -1535,15 +1545,47 @@
 		};
 		if (t in handlers) {
 			swallow(e);
+			// See returnFocus.
+			closingKeys.add(e.code);
 			handlers[t]();
 		} else {
 			e.stopImmediatePropagation();
 		}
 		return true;
 	};
+	// The prompt and the help screen read keys here, in the top frame, so
+	// they take focus out of any iframe that had it (Google Docs' editor
+	// frame). Closing one with a key gives that focus back, once the key is
+	// released: its keyup must not reach the page (Docs refocuses its editor
+	// on one, which is insert mode), and without the focus back, keys typed
+	// after `i` would never reach Docs.
+	let returnFocus = null;
+	const closingKeys = new Set();
+
+	function leaveFrame() {
+		const el = document.activeElement;
+		if (el && el.tagName === "IFRAME") {
+			returnFocus = el;
+			el.blur();
+		}
+	}
+
+	function restoreFocus() {
+		const el = returnFocus;
+		returnFocus = null;
+		const active = document.activeElement;
+		// Only if nothing has taken focus since (a field, a found link).
+		if (el && el.isConnected && (!active || active === document.body)) el.focus({ preventScroll: true });
+	}
+
 	for (const type of ["keypress", "keyup"]) {
 		window.addEventListener(type, (e) => {
-			if (commandOpen && e.target === host) e.stopImmediatePropagation();
+			if (type === "keyup" && closingKeys.delete(e.code)) {
+				swallow(e);
+				restoreFocus();
+			} else if (commandOpen && e.target === host) {
+				e.stopImmediatePropagation();
+			}
 		}, true);
 	}
 })();
