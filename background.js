@@ -214,24 +214,97 @@ chrome.tabs.onRemoved.addListener((tabId) => hintSessions.delete(tabId));
 
 // ---- :open ------------------------------------------------------------------
 
-// Bookmarks first, then history, each keeping only entries with every word
-// somewhere in the URL or title. Empty, it lists recent bookmarks and the
-// most recent history.
+// The list and the inline completion for what was typed after "open".
 async function complete(query) {
+	const { openCounts = {} } = await chrome.storage.local.get("openCounts");
+	const [items, inline] = await Promise.all([completeList(query, openCounts), completeInline(query, openCounts)]);
+	return { items, inline };
+}
+
+// Every address opened through :open, typed or picked from the list, with
+// how many times, when last, and its title when known. This is the ranking:
+// what you open most comes first, whatever the browser's history says.
+// History only stands in for addresses never opened here.
+const OPEN_COUNTS_MAX = 2000;
+const countKey = (url) => url.replace(/\/$/, "");
+const bare = (url) => url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^www\./i, "");
+const byUse = (a, b) => b.count - a.count || b.at - a.at;
+
+async function countOpen(url, title) {
+	const { openCounts = {} } = await chrome.storage.local.get("openCounts");
+	const key = countKey(url);
+	const entry = openCounts[key] || { count: 0 };
+	entry.count += 1;
+	entry.at = Date.now();
+	if (title) entry.title = title;
+	openCounts[key] = entry;
+	const keys = Object.keys(openCounts);
+	if (keys.length > OPEN_COUNTS_MAX) {
+		// The least used, and of those the longest unused, make room.
+		keys.sort((x, y) => byUse(openCounts[y], openCounts[x]));
+		for (const old of keys.slice(0, keys.length - OPEN_COUNTS_MAX)) delete openCounts[old];
+	}
+	await chrome.storage.local.set({ openCounts });
+}
+
+// The address to complete inline, scheme and www. left off: the most opened
+// one that starts with what was typed. Failing that, from history: of the
+// entries whose host starts with it (or whose address does, once a / is
+// typed), the one with the most visits summed. Nothing when what was typed
+// is already the best match, or is a search (anything with a space).
+async function completeInline(query, openCounts) {
+	const typed = bare(query.trim()).toLowerCase();
+	if (!typed || /\s/.test(typed)) return null;
+	let best = null;
+	for (const [key, entry] of Object.entries(openCounts)) {
+		const address = bare(key);
+		if (address.toLowerCase().startsWith(typed) && (!best || byUse(entry, best.entry) < 0)) best = { address, entry };
+	}
+	if (best) return best.address.length > typed.length ? best.address : null;
+	// History's text search matches words, not paths, so it is asked for the
+	// host part and the rest is matched here.
+	const visits = await chrome.history.search({ text: typed.split("/")[0], startTime: 0, maxResults: 1000 });
+	const scores = new Map();
+	for (const h of visits) {
+		const address = bare(h.url);
+		const candidate = typed.includes("/") ? countKey(address) : address.split(/[/?#]/)[0];
+		if (!candidate.toLowerCase().startsWith(typed)) continue;
+		scores.set(candidate, (scores.get(candidate) || 0) + (h.visitCount || 0));
+	}
+	let top = null;
+	for (const [candidate, score] of scores) {
+		if (!top || score > top[1]) top = [candidate, score];
+	}
+	return top && top[0].length > typed.length ? top[0] : null;
+}
+
+// The list: what you opened most, then bookmarks, then history by visits,
+// each keeping only entries with every word somewhere in the URL or title.
+// An address shows once, under the first of those it is in.
+async function completeList(query, openCounts) {
 	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 	const fits = (item) => item.url && words.every((w) => (item.url + " " + (item.title || "")).toLowerCase().includes(w));
-	const marks = query ? await chrome.bookmarks.search(query) : await chrome.bookmarks.getRecent(10);
 	const seen = new Set();
 	const out = [];
-	for (const m of marks.filter(fits).slice(0, 20)) {
-		seen.add(m.url);
-		out.push({ category: "Bookmarks", url: m.url, title: m.title });
-	}
+	const add = (category, url, title) => {
+		const key = countKey(url);
+		if (seen.has(key)) return;
+		seen.add(key);
+		out.push({ category, url, title });
+	};
+	const marks = query ? await chrome.bookmarks.search(query) : await chrome.bookmarks.getRecent(10);
 	const visits = await chrome.history.search({ text: query, startTime: 0, maxResults: 200 });
+	// A typed address was counted without a title; the browser knows it.
+	const titles = new Map([...visits, ...marks].filter((x) => x.url && x.title).map((x) => [countKey(x.url), x.title]));
+	const used = Object.entries(openCounts)
+		.map(([url, entry]) => ({ url, ...entry, title: entry.title || titles.get(url) }))
+		.filter(fits)
+		.sort(byUse);
+	for (const u of used.slice(0, 20)) add("Most used", u.url, u.title);
+	for (const m of marks.filter(fits).slice(0, 20)) add("Bookmarks", m.url, m.title);
+	visits.sort((x, y) => (y.visitCount || 0) - (x.visitCount || 0));
 	for (const h of visits.filter(fits)) {
-		if (seen.has(h.url)) continue;
-		seen.add(h.url);
-		out.push({ category: "History", url: h.url, title: h.title });
+		add("History", h.url, h.title);
 		if (out.length >= 100) break;
 	}
 	return out;
@@ -248,9 +321,10 @@ function toUrl(text) {
 	return null;
 }
 
-async function open(tab, text, newTab) {
+async function open(tab, text, newTab, title) {
 	const url = toUrl(text);
 	if (url) {
+		await countOpen(url, title);
 		if (newTab) await chrome.tabs.create({ url, index: tab.index + 1, openerTabId: tab.id });
 		else await chrome.tabs.update(tab.id, { url });
 	} else {
@@ -271,7 +345,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 		complete(msg.complete).then(sendResponse, () => sendResponse([]));
 		return true;
 	} else if (typeof msg.open === "string") {
-		open(sender.tab, msg.open, !!msg.newTab).catch(() => {});
+		open(sender.tab, msg.open, !!msg.newTab, typeof msg.title === "string" ? msg.title : "").catch(() => {});
 	} else if (msg.importDefaults) {
 		// Answered once stored, so the page can say whether it worked.
 		importDefaults().then(() => sendResponse(true), () => sendResponse(false));

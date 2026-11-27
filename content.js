@@ -750,8 +750,11 @@
 		host.keys = root.querySelector(".keys");
 		host.promptPrefix = root.querySelector(".cmd .prefix");
 		host.count = root.querySelector(".cmd .count");
-		host.input.addEventListener("input", () => {
+		host.input.addEventListener("input", (e) => {
 			typed = host.input.value;
+			// Deleting never brings an inline completion back, as in the
+			// browser's own address bar: Backspace would just re-add it.
+			deleting = !!(e.inputType && e.inputType.startsWith("delete"));
 			if (promptKind === "find") {
 				findType(typed);
 				return;
@@ -1370,6 +1373,23 @@
 
 	let urlQuery = null;
 	let urlResults = [];
+	let deleting = false;
+
+	// The browser address bar's inline completion: the rest of the address
+	// you most likely mean ("yout" -> "youtube.com"), after the cursor and
+	// selected, so typing on replaces it, Backspace drops it, and Right or End
+	// keeps it. Enter opens the line as shown. Only while the line is still
+	// exactly what was typed, with nothing picked from the list.
+	function inlineComplete(completion) {
+		const input = bar().input;
+		if (!completion || deleting || selected !== -1 || input.value !== typed) return;
+		if (input.selectionStart !== typed.length) return;
+		const text = openArgs(typed).text;
+		const stripped = text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^www\./i, "");
+		if (!stripped || !completion.toLowerCase().startsWith(stripped.toLowerCase())) return;
+		input.value = typed + completion.slice(stripped.length);
+		input.setSelectionRange(typed.length, input.value.length);
+	}
 
 	function renderUrlCompletion(args) {
 		const b = bar();
@@ -1378,9 +1398,10 @@
 			urlQuery = query;
 			urlResults = [];
 			chrome.runtime.sendMessage({ complete: query }).then((results) => {
-				if (urlQuery !== query || !commandOpen || !Array.isArray(results)) return;
-				urlResults = results;
+				if (urlQuery !== query || !commandOpen || !results || !Array.isArray(results.items)) return;
+				urlResults = results.items;
 				renderCompletion();
+				inlineComplete(results.inline);
 			}).catch(() => {});
 		}
 		matches = urlResults;
@@ -1470,8 +1491,10 @@
 		const args = openArgs(bar().input.value);
 		if (args) {
 			const target = args.text.trim();
+			// The picked row's title, kept with its count for the list.
+			const picked = selected !== -1 && matches[selected] && matches[selected].url === target ? matches[selected].title : "";
 			closeCommandLine();
-			if (target) chrome.runtime.sendMessage({ open: target, newTab: args.newTab }).catch(() => {});
+			if (target) chrome.runtime.sendMessage({ open: target, newTab: args.newTab, title: picked || "" }).catch(() => {});
 			return;
 		}
 		const typed = bar().input.value.trim();
