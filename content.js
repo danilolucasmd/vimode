@@ -122,6 +122,7 @@
 
 	function onKeydown(e) {
 		if (e.isComposing) return;
+		if (commandKey(e)) return;
 		userActed = true;
 		const t = token(e);
 		if (!t) return;
@@ -212,6 +213,12 @@
 			);
 		},
 		enterInsertMode: () => { insertMode = true; },
+		// The command line is drawn by the top frame, so a subframe asks it to
+		// open there.
+		enterCommandMode: () => {
+			if (isTop) openCommandLine();
+			else window.top.postMessage({ [TAG]: { openCommandLine: true } }, "*");
+		},
 		focusInput: (n) => {
 			const visible = (el) => {
 				const r = el.getBoundingClientRect();
@@ -225,7 +232,7 @@
 	};
 
 	function run(command, n) {
-		if (VIMODE_COMMANDS[command] === "tab") {
+		if (VIMODE_COMMANDS[command] && VIMODE_COMMANDS[command].where === "tab") {
 			chrome.runtime.sendMessage({ tabCommand: command, count: n }).catch(() => {});
 		} else if (pageCommands[command]) {
 			pageCommands[command](n);
@@ -268,6 +275,9 @@
 	// that change it with pushState. Only a page on screen does any work.
 	setInterval(() => { if (!document.hidden) changed(); }, 250);
 
+	// Replaced in the top frame, the only one with a command line.
+	let commandKey = () => false;
+
 	if (!isTop) return;
 
 	// Top frame: its own state plus every subframe's last report, keyed by the
@@ -277,6 +287,7 @@
 		const msg = e.data && typeof e.data === "object" ? e.data[TAG] : undefined;
 		if (!msg || typeof msg !== "object") return;
 		if (typeof msg.flash === "string") flash(msg.flash);
+		else if (msg.openCommandLine) openCommandLine();
 		else frames.set(e.source, msg);
 		changed();
 	});
@@ -319,7 +330,7 @@
 		const root = host.attachShadow({ mode: "closed" });
 		root.innerHTML = `<style>
 			:host { all: initial; }
-			div {
+			.bar {
 				position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
 				box-sizing: border-box; height: 20px; padding: 0 8px;
 				display: flex; gap: 16px;
@@ -332,13 +343,49 @@
 			.url { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 			.url.https { color: #a6e3a1; }
 			.url.hover { color: #89b4fa; }
-			div.insert { background: #a6e3a1; color: #1e1b22; }
-			div.insert .url:not(.hover) { color: #1e1b22; }
-		</style><div><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
-		host.box = root.querySelector("div");
+			.bar.insert { background: #a6e3a1; color: #1e1b22; }
+			.bar.insert .url:not(.hover) { color: #1e1b22; }
+			.cmd { display: none; flex: 1; min-width: 0; }
+			.cmd input {
+				all: unset; flex: 1; min-width: 0; color: #dddddd; caret-color: #dddddd;
+				font: inherit; pointer-events: auto;
+			}
+			.bar.command { background: #2c292f; }
+			.bar.command .cmd { display: flex; }
+			.bar.command .mode, .bar.command .url, .bar.command .keys { display: none; }
+			.completion {
+				position: fixed; left: 0; right: 0; bottom: 20px; z-index: 2147483647;
+				max-height: 40vh; overflow-y: auto; display: none;
+				background: #2c292f; color: #dddddd;
+				font: 11px/18px "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+				pointer-events: none;
+			}
+			.completion.open { display: block; }
+			.completion .category {
+				padding: 0 8px; background: #231f26; color: #cba6f7; font-weight: 600;
+				border-top: 1px solid #231f26; border-bottom: 1px solid #231f26;
+			}
+			.completion .row { display: flex; gap: 16px; padding: 0 8px; white-space: nowrap; }
+			.completion .row.selected { background: #3d3744; color: #ffffff; }
+			.completion .name { flex: none; width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+			.completion .desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+			.completion .bind { flex: none; color: #8a8590; }
+			.completion .match { color: #cba6f7; }
+		</style>
+		<div class="completion"></div>
+		<div class="bar"><span class="cmd">:<input spellcheck="false" autocomplete="off"></span><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
+		host.box = root.querySelector(".bar");
+		host.completion = root.querySelector(".completion");
+		host.input = root.querySelector(".cmd input");
 		host.mode = root.querySelector(".mode");
 		host.url = root.querySelector(".url");
 		host.keys = root.querySelector(".keys");
+		host.input.addEventListener("input", () => {
+			typed = host.input.value;
+			selected = -1;
+			renderCompletion();
+		});
+		host.input.addEventListener("blur", () => closeCommandLine());
 		return host;
 	}
 
@@ -359,18 +406,182 @@
 		const b = bar();
 		const html = document.documentElement;
 		if (!b.isConnected && html) html.append(b);
-		b.box.classList.toggle("insert", insert);
+		b.box.classList.toggle("insert", insert && !commandOpen);
+		b.box.classList.toggle("command", commandOpen);
 		setText(b.mode, insert ? "-- INSERT --" : "");
 		setText(b.keys, keys);
 		setText(b.url, flashText || pretty(hovered || location.href));
 		b.url.classList.toggle("hover", !flashText && hovered !== null);
 		b.url.classList.toggle("https", !flashText && location.protocol === "https:");
 		// Out of the way of fullscreen video and presentations.
-		b.box.style.display = document.fullscreenElement ? "none" : "flex";
+		b.box.style.display = document.fullscreenElement && !commandOpen ? "none" : "flex";
 		// Dark Reader's filter mode (its choice on Google Docs) inverts the
 		// whole page with a CSS filter on <html>, bar included. Inverting it
 		// back keeps the colours right.
 		const inverted = html && html.getAttribute("data-darkreader-mode") === "filter";
 		b.box.style.filter = inverted ? "invert(100%) hue-rotate(180deg)" : "";
+		b.completion.style.filter = b.box.style.filter;
+	}
+
+	// ---- the command line ---------------------------------------------------------
+	//
+	// qutebrowser's, cut down to commands: `:` (enterCommandMode) opens a
+	// prompt in the bar with every command listed above it, the list narrows
+	// as you type (each word must appear in a command's name or description,
+	// matches in mauve), Tab and Shift-Tab (or the arrows, or Ctrl-N/Ctrl-P)
+	// walk it and fill the prompt, Enter runs, Escape closes. The colours are
+	// qutebrowser's completion ones from its config.py.
+	//
+	// The prompt is an input inside the bar's closed shadow root, so the page
+	// sees keydowns bubbling out of it with the bar's host as their target.
+	// Those are stopped at the window, before the page's own listeners can act
+	// on them (a site's single-key shortcuts would otherwise fire as you
+	// type); stopping propagation does not cancel the default action, so the
+	// characters still land in the input.
+
+	let commandOpen = false;
+	let selected = -1;
+	let matches = [];
+	// What was typed, as opposed to what Tab filled in: the list filters on
+	// this, so walking it does not narrow it to the row just picked.
+	let typed = "";
+
+	function openCommandLine() {
+		const b = bar();
+		commandOpen = true;
+		selected = -1;
+		typed = "";
+		b.input.value = "";
+		render();
+		renderCompletion();
+		b.input.focus();
+	}
+
+	function closeCommandLine() {
+		if (!commandOpen) return;
+		commandOpen = false;
+		const b = bar();
+		b.completion.classList.remove("open");
+		if (b.input.matches(":focus")) b.input.blur();
+		render();
+	}
+
+	// Each command's keys, as written in the config, for the list's right
+	// column.
+	function bindings() {
+		const out = {};
+		for (const [keys, command] of Object.entries(keymap)) {
+			(out[command] = out[command] || []).push(keys.split(" ").join(""));
+		}
+		return out;
+	}
+
+	// A text node with every occurrence of the words wrapped in .match.
+	function highlight(text, words) {
+		const frag = document.createDocumentFragment();
+		const lower = text.toLowerCase();
+		const marks = new Array(text.length).fill(false);
+		for (const w of words) {
+			for (let i = lower.indexOf(w); w && i !== -1; i = lower.indexOf(w, i + 1)) {
+				for (let j = i; j < i + w.length; j++) marks[j] = true;
+			}
+		}
+		let i = 0;
+		while (i < text.length) {
+			let j = i;
+			while (j < text.length && marks[j] === marks[i]) j++;
+			const part = document.createTextNode(text.slice(i, j));
+			if (marks[i]) {
+				const span = document.createElement("span");
+				span.className = "match";
+				span.append(part);
+				frag.append(span);
+			} else {
+				frag.append(part);
+			}
+			i = j;
+		}
+		return frag;
+	}
+
+	function renderCompletion() {
+		const b = bar();
+		const words = typed.trim().toLowerCase().split(/\s+/).filter(Boolean);
+		matches = Object.entries(VIMODE_COMMANDS)
+			.filter(([name]) => name !== "enterCommandMode")
+			.filter(([name, { desc }]) => words.every((w) => (name + " " + desc).toLowerCase().includes(w)))
+			.map(([name]) => name);
+		const binds = bindings();
+		const list = b.completion;
+		list.replaceChildren();
+		const category = document.createElement("div");
+		category.className = "category";
+		category.textContent = "Commands";
+		list.append(category);
+		matches.forEach((name, i) => {
+			const row = document.createElement("div");
+			row.className = "row" + (i === selected ? " selected" : "");
+			const n = document.createElement("span");
+			n.className = "name";
+			n.append(highlight(name, words));
+			const d = document.createElement("span");
+			d.className = "desc";
+			d.append(highlight(VIMODE_COMMANDS[name].desc, words));
+			const k = document.createElement("span");
+			k.className = "bind";
+			k.textContent = (binds[name] || []).join(" ");
+			row.append(n, d, k);
+			list.append(row);
+		});
+		list.classList.toggle("open", commandOpen);
+		const row = list.querySelectorAll(".row")[selected];
+		if (row) row.scrollIntoView({ block: "nearest" });
+	}
+
+	function move(step) {
+		if (!matches.length) return;
+		selected = selected === -1
+			? (step > 0 ? 0 : matches.length - 1)
+			: (selected + step + matches.length) % matches.length;
+		bar().input.value = matches[selected];
+		renderCompletion();
+	}
+
+	function accept() {
+		const typed = bar().input.value.trim();
+		const name = typed in VIMODE_COMMANDS ? typed
+			: selected !== -1 ? matches[selected]
+			: matches.length === 1 ? matches[0]
+			: null;
+		closeCommandLine();
+		if (name) run(name, 1);
+		else if (typed) flash(`No command: ${typed}`);
+	}
+
+	commandKey = (e) => {
+		if (!commandOpen || e.target !== host) return false;
+		const t = token(e);
+		const handlers = {
+			"<esc>": closeCommandLine,
+			"<enter>": accept,
+			"<tab>": () => move(1),
+			"<s-tab>": () => move(-1),
+			"<down>": () => move(1),
+			"<up>": () => move(-1),
+			"<c-n>": () => move(1),
+			"<c-p>": () => move(-1),
+		};
+		if (t in handlers) {
+			swallow(e);
+			handlers[t]();
+		} else {
+			e.stopImmediatePropagation();
+		}
+		return true;
+	};
+	for (const type of ["keypress", "keyup"]) {
+		window.addEventListener(type, (e) => {
+			if (commandOpen && e.target === host) e.stopImmediatePropagation();
+		}, true);
 	}
 })();

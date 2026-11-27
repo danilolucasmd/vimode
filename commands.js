@@ -1,47 +1,49 @@
 // Shared by the background worker (which parses the config) and the content
 // script (which runs the commands): the command names and the config parser.
 // There is no built-in keymap: the config file is the whole of it, so a key
-// does something only if a `map` line says so. Loaded as a classic script in both, so it only defines
-// globals.
+// does something only if a `map` line says so. Loaded as a classic script in
+// both, so it only defines globals.
 
-// Every command, and where it runs: "page" in the frame the key was pressed
-// in, "tab" in the background worker, which owns the tabs API.
+// Every command, where it runs ("page" in the frame the key was pressed in,
+// "tab" in the background worker, which owns the tabs API) and the line the
+// command line's completion shows for it.
 const VIMODE_COMMANDS = {
-	scrollDown: "page",
-	scrollUp: "page",
-	scrollLeft: "page",
-	scrollRight: "page",
-	scrollPageDown: "page",
-	scrollPageUp: "page",
-	scrollFullPageDown: "page",
-	scrollFullPageUp: "page",
-	scrollToTop: "page",
-	scrollToBottom: "page",
-	scrollToLeft: "page",
-	scrollToRight: "page",
-	goBack: "page",
-	goForward: "page",
-	goUp: "page",
-	goToRoot: "page",
-	reload: "page",
-	copyCurrentUrl: "page",
-	enterInsertMode: "page",
-	focusInput: "page",
-	nextTab: "tab",
-	previousTab: "tab",
-	firstTab: "tab",
-	lastTab: "tab",
-	visitPreviousTab: "tab",
-	createTab: "tab",
-	duplicateTab: "tab",
-	removeTab: "tab",
-	restoreTab: "tab",
-	togglePinTab: "tab",
-	closeOtherTabs: "tab",
-	closeTabsOnLeft: "tab",
-	closeTabsOnRight: "tab",
-	moveTabLeft: "tab",
-	moveTabRight: "tab",
+	scrollDown: { where: "page", desc: "Scroll down one step" },
+	scrollUp: { where: "page", desc: "Scroll up one step" },
+	scrollLeft: { where: "page", desc: "Scroll left one step" },
+	scrollRight: { where: "page", desc: "Scroll right one step" },
+	scrollPageDown: { where: "page", desc: "Scroll down half a page" },
+	scrollPageUp: { where: "page", desc: "Scroll up half a page" },
+	scrollFullPageDown: { where: "page", desc: "Scroll down a full page" },
+	scrollFullPageUp: { where: "page", desc: "Scroll up a full page" },
+	scrollToTop: { where: "page", desc: "Scroll to the top of the page" },
+	scrollToBottom: { where: "page", desc: "Scroll to the bottom of the page" },
+	scrollToLeft: { where: "page", desc: "Scroll all the way left" },
+	scrollToRight: { where: "page", desc: "Scroll all the way right" },
+	goBack: { where: "page", desc: "Go back in history" },
+	goForward: { where: "page", desc: "Go forward in history" },
+	goUp: { where: "page", desc: "Go up one level in the URL path" },
+	goToRoot: { where: "page", desc: "Go to the site's root" },
+	reload: { where: "page", desc: "Reload the page" },
+	copyCurrentUrl: { where: "page", desc: "Copy the page's URL" },
+	enterInsertMode: { where: "page", desc: "Enter insert mode: keys go to the page until Escape" },
+	enterCommandMode: { where: "page", desc: "Open the command line" },
+	focusInput: { where: "page", desc: "Focus the first text field on the page" },
+	nextTab: { where: "tab", desc: "Go to the next tab" },
+	previousTab: { where: "tab", desc: "Go to the previous tab" },
+	firstTab: { where: "tab", desc: "Go to the first tab" },
+	lastTab: { where: "tab", desc: "Go to the last tab" },
+	visitPreviousTab: { where: "tab", desc: "Go back to the last tab you were on" },
+	createTab: { where: "tab", desc: "Open a new tab" },
+	duplicateTab: { where: "tab", desc: "Duplicate this tab" },
+	removeTab: { where: "tab", desc: "Close this tab" },
+	restoreTab: { where: "tab", desc: "Reopen the last closed tab" },
+	togglePinTab: { where: "tab", desc: "Pin or unpin this tab" },
+	closeOtherTabs: { where: "tab", desc: "Close every other tab except pinned ones" },
+	closeTabsOnLeft: { where: "tab", desc: "Close the tabs to the left, except pinned ones" },
+	closeTabsOnRight: { where: "tab", desc: "Close the tabs to the right, except pinned ones" },
+	moveTabLeft: { where: "tab", desc: "Move this tab one place left" },
+	moveTabRight: { where: "tab", desc: "Move this tab one place right" },
 };
 
 const VIMODE_DEFAULT_SETTINGS = {
