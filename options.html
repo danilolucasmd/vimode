@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>vimode</title>
+<style>
+	body { font: 13px system-ui, sans-serif; margin: 16px; min-width: 420px; }
+	label { display: block; margin-bottom: 6px; font-weight: 600; }
+	input { width: 100%; box-sizing: border-box; font: 12px monospace; padding: 4px 6px; }
+	p { color: #666; }
+	#status { white-space: pre-wrap; font: 12px monospace; margin-top: 12px; }
+	.ok { color: #2a7a2a; }
+	.bad { color: #b02a2a; }
+</style>
+<label for="path">Config file</label>
+<input id="path" spellcheck="false">
+<p>Saved as you type. <code>~</code> is your home directory. The file is watched, so edits apply to every open tab within a second.</p>
+<div id="status"></div>
+<script src="options.js"></script>
