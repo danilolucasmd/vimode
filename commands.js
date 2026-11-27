@@ -23,6 +23,7 @@ const VIMODE_COMMANDS = {
 	scrollToLeft: { where: "page", desc: "Scroll all the way left", group: "Scrolling" },
 	scrollToRight: { where: "page", desc: "Scroll all the way right", group: "Scrolling" },
 	open: { where: "page", desc: "Open a URL or search, with bookmarks and history to pick from", group: "Navigation" },
+	editUrl: { where: "page", desc: "Open, starting from this page's URL, selected so typing replaces it", group: "Navigation" },
 	openInNewTab: { where: "page", desc: "Open a URL or search in a new tab", group: "Navigation" },
 	goBack: { where: "page", desc: "Go back in history", group: "Navigation" },
 	goForward: { where: "page", desc: "Go forward in history", group: "Navigation" },

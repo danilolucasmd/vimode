@@ -235,6 +235,12 @@
 		importConfig: () => importConfig(),
 		open: () => openPrompt("command", "open "),
 		openInNewTab: () => openPrompt("command", "open -t "),
+		// The address bar's Ctrl+L: the URL is there to edit, and selected,
+		// so typing straight away replaces it.
+		editUrl: () => {
+			openPrompt("command", `open ${location.href}`);
+			bar().input.setSelectionRange("open ".length, bar().input.value.length);
+		},
 		exportConfig: () => exportConfig(),
 		importDefaults: () => {
 			chrome.runtime.sendMessage({ importDefaults: true })
@@ -272,7 +278,7 @@
 	// Drawn by the top frame (the command line, the help screen) or kept there
 	// (the search, which covers the top document only), so a subframe hands
 	// them up.
-	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "exportConfig", "open", "openInNewTab", "enterFindMode", "performFind", "performBackwardsFind"]);
+	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "exportConfig", "open", "openInNewTab", "editUrl", "enterFindMode", "performFind", "performBackwardsFind"]);
 
 	// ---- link hints ---------------------------------------------------------------
 	//

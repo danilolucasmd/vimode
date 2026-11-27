@@ -98,6 +98,7 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 | Command | What it does |
 |---|---|
 | `open`, `openInNewTab` | Open a URL or search, here or in a new tab, picking from bookmarks and history. |
+| `editUrl` | `open` with this page's URL filled in and selected, as the address bar's Ctrl+L: type to replace it, or Right to edit it. |
 | `goBack`, `goForward` | Browser history. |
 | `goUp` | Drop the last segment of the URL path. |
 | `goToRoot` | Go to the site's root. |
