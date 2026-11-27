@@ -1,28 +1,34 @@
 # Vimode's default keymap, loaded when the extension is first installed and
 # again by :importDefaults. To make your own, download it with :exportConfig,
-# edit it, and import it with :importConfig (again after every change). The file is the
-# whole keymap, with nothing built in underneath: a key does something only if
-# a line here maps it. `map <keys> <command>` and `set <name> <value>`.
-# Problems (an unknown command, a typo) are listed after the import and skip
-# just that line. Press ? for every mapped key, : for every command.
+# edit it, and import it with :importConfig (again after every change). The
+# file is the whole keymap, with nothing built in underneath: a key does
+# something only if a line here maps it. `map <keys> <command>` and
+# `set <name> <value>`. Problems (an unknown command, a typo) are listed after
+# the import and skip just that line. Press ? for every mapped key, : for
+# every command, including the ones mapped to nothing here.
 
-# A page that focuses a field as it loads would otherwise start in insert mode
-# and swallow the first keys meant for here.
-set grabBackFocus true
+# The settings, at their default values.
 
-# A printable key with no mapping is dropped in normal mode instead of reaching
-# the page, as in qutebrowser. Otherwise Google Docs takes any such key as
-# typing, refocuses its editor and drops into insert mode. Keys with Ctrl or
-# Alt, and arrows, space and Enter, still pass.
-set passUnmappedKeys false
+# Undo a page focusing a text field as it loads, which would otherwise start
+# in insert mode and swallow the first keys meant for here.
+set grabBackFocus false
 
-# The characters link hints are made of. The labels' look can be changed by
+# Let a printable key with no mapping reach the page in normal mode, so a
+# site's own shortcuts keep working. Set it to false to drop them instead
+# (Google Docs, for one, takes any such key as typing and refocuses its
+# editor). Keys with Ctrl or Alt, and arrows, space and Enter, always pass.
+set passUnmappedKeys true
+
+# The characters link hints are made of. Their look can be changed by
 # importing a style.css alongside this file.
 set linkHintCharacters sadfjklewcmpgh
 
 # Pausing halfway through a key sequence shows the keys that continue it,
-# after this many ms (qutebrowser's keyhint.delay).
+# after this many ms. Negative turns it off.
 set keyhintDelay 500
+
+# How far one scroll step goes, in pixels.
+set scrollStepSize 60
 
 # Modes
 map i enterInsertMode
@@ -30,8 +36,8 @@ map : enterCommandMode
 map ? showHelp
 map gi focusInput
 
-# Link hints, Vimium's keys. Holding Shift while picking swaps opening in this
-# tab and in a new one; Space cycles labels that overlap.
+# Link hints. Holding Shift while picking swaps opening in this tab and in a
+# new one; Space cycles labels that overlap.
 map f LinkHints.activateMode
 map F LinkHints.activateModeToOpenInNewTab
 map <a-f> LinkHints.activateModeWithQueue
@@ -48,32 +54,35 @@ map j scrollDown
 map k scrollUp
 map h scrollLeft
 map l scrollRight
-map <c-d> scrollPageDown
-map <c-u> scrollPageUp
+map <c-e> scrollDown
+map <c-y> scrollUp
+map d scrollPageDown
+map u scrollPageUp
 map gg scrollToTop
 map G scrollToBottom
 map zH scrollToLeft
 map zL scrollToRight
 
 # History and the address
-map <c-o> goBack
-map <c-i> goForward
+map H goBack
+map L goForward
 map gu goUp
 map gU goToRoot
+map r reload
 map yy copyCurrentUrl
 
 # Tabs
-map L nextTab
-map H previousTab
+map K nextTab
+map gt nextTab
+map J previousTab
+map gT previousTab
 map g0 firstTab
 map g$ lastTab
 map ^ visitPreviousTab
-map bt createTab
+map t createTab
 map yt duplicateTab
-map bd removeTab
+map x removeTab
 map X restoreTab
 map <a-p> togglePinTab
-map bo closeOtherTabs
-map br closeTabsOnRight
-map bH moveTabLeft
-map bL moveTabRight
+map << moveTabLeft
+map >> moveTabRight
