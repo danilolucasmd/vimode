@@ -14,7 +14,10 @@
     "storage",
     "sessions",
     "clipboardWrite",
-    "webNavigation"
+    "webNavigation",
+    "history",
+    "bookmarks",
+    "search"
   ],
   "background": {
     "service_worker": "background.js"

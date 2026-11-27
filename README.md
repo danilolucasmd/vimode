@@ -16,6 +16,7 @@ Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes 
 - **A key hint,** like qutebrowser's. Pause halfway through a key sequence (after `g`, say) and a panel above the status bar lists every mapping that continues it, with its command.
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
 - **Find mode.** The key mapped to `enterFindMode` (`/` is the natural choice) opens a search prompt in the status bar. Every match on the page is highlighted as you type, the current one in orange and scrolled into view, with its position (`[3/17]`) on the right. Enter keeps the search and focuses the match's link, if it is in one, so a second Enter follows it; Escape puts the page back where it was. `performFind` and `performBackwardsFind` step through the matches, wrapping at the ends, and Escape in normal mode clears the highlights. A lowercase search ignores case; any capital letter makes it exact.
+- **Open a URL or search,** like qutebrowser's `:open`. The keys mapped to `open` and `openInNewTab` (`o` and `O` in the defaults) fill the command line with `open ` or `open -t `, and the list above it shows your bookmarks and history, narrowing to entries with every typed word in the URL or title. Tab picks one, Enter opens it. Typed text that looks like an address (a scheme, `localhost`, an IP, or a dotted host) is opened directly; anything else goes to the browser's default search engine. With this and the status bar showing the URL, the browser's address bar can be hidden.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
 
 - **Link hints,** as in Vimium. A hint command labels every clickable thing on screen, in every frame, and typing a label picks it: click it, open it in a background or foreground tab, open several in a row, copy its address, or download it. Labels narrow as you type; Backspace undoes a character, Escape or a click cancels, holding Shift swaps opening in this tab and in a new one, and Space cycles labels that overlap.
@@ -38,7 +39,7 @@ The browser loads the extension straight from the repo directory, so after chang
 
 ## Configuration
 
-The config is one or two files, imported with `importConfig`, which opens a file picker: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. Vimode keeps a copy, so import again after editing. The status bar confirms what was imported, and any lines that were skipped are listed in a panel.
+The config is one or two files, imported with `importConfig`, which opens a file picker: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. Vimode keeps a copy, so import again after editing. The status bar confirms what was imported, and any lines that were skipped are listed in a panel. A file that is not text (a zip, an image), is over 256 KB, or is a keymap that maps no keys is refused, and the current config stays. Whatever the config, if no key opens the command line, `:` does, so `:importConfig` and `:importDefaults` are always reachable.
 
 The file is the whole keymap: nothing is built in, so a key does something only if a line maps it. The syntax follows Vimium's:
 
@@ -96,6 +97,7 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 
 | Command | What it does |
 |---|---|
+| `open`, `openInNewTab` | Open a URL or search, here or in a new tab, picking from bookmarks and history. |
 | `goBack`, `goForward` | Browser history. |
 | `goUp` | Drop the last segment of the URL path. |
 | `goToRoot` | Go to the site's root. |
@@ -202,6 +204,7 @@ What is done, and what is planned.
 - [x] Reload
 - [x] Copy the page's URL
 - [x] Focus a text field
+- [x] Open a URL or search, with bookmarks and history to pick from
 - [ ] Open the URL on the clipboard
 - [ ] Previous and next page links
 - [ ] View source

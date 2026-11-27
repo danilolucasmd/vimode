@@ -63,7 +63,9 @@ map G scrollToBottom
 map zH scrollToLeft
 map zL scrollToRight
 
-# History and the address
+# History and the address. o opens a URL or searches, O does it in a new tab.
+map o open
+map O openInNewTab
 map H goBack
 map L goForward
 map gu goUp

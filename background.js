@@ -212,6 +212,53 @@ async function hintKey(tab, key) {
 
 chrome.tabs.onRemoved.addListener((tabId) => hintSessions.delete(tabId));
 
+// ---- :open ------------------------------------------------------------------
+
+// Bookmarks first, then history, each keeping only entries with every word
+// somewhere in the URL or title. Empty, it lists recent bookmarks and the
+// most recent history.
+async function complete(query) {
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const fits = (item) => item.url && words.every((w) => (item.url + " " + (item.title || "")).toLowerCase().includes(w));
+	const marks = query ? await chrome.bookmarks.search(query) : await chrome.bookmarks.getRecent(10);
+	const seen = new Set();
+	const out = [];
+	for (const m of marks.filter(fits).slice(0, 20)) {
+		seen.add(m.url);
+		out.push({ category: "Bookmarks", url: m.url, title: m.title });
+	}
+	const visits = await chrome.history.search({ text: query, startTime: 0, maxResults: 200 });
+	for (const h of visits.filter(fits)) {
+		if (seen.has(h.url)) continue;
+		seen.add(h.url);
+		out.push({ category: "History", url: h.url, title: h.title });
+		if (out.length >= 100) break;
+	}
+	return out;
+}
+
+// What was typed in :open, as an address when it looks like one: a scheme,
+// localhost or an IP, or a dotted host with no spaces. Anything else is a
+// search.
+function toUrl(text) {
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) || /^(about|data|file):/i.test(text)) return text;
+	if (/\s/.test(text)) return null;
+	if (/^(localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])(:\d+)?([/?#].*)?$/i.test(text)) return "http://" + text;
+	if (/^[^\s/?#]+\.[a-z][a-z0-9-]+\.?(:\d+)?([/?#].*)?$/i.test(text)) return "https://" + text;
+	return null;
+}
+
+async function open(tab, text, newTab) {
+	const url = toUrl(text);
+	if (url) {
+		if (newTab) await chrome.tabs.create({ url, index: tab.index + 1, openerTabId: tab.id });
+		else await chrome.tabs.update(tab.id, { url });
+	} else {
+		// The browser's own default search engine.
+		await chrome.search.query(newTab ? { text, disposition: "NEW_TAB" } : { text, tabId: tab.id });
+	}
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 	if (!msg || !sender.tab) return;
 	if (msg.tabCommand in tabCommands) {
@@ -220,6 +267,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 		startHints(sender.tab, VIMODE_HINT_MODES[msg.hintsStart]).catch(() => {});
 	} else if (typeof msg.hintsKey === "string") {
 		hintKey(sender.tab, msg.hintsKey).catch(() => {});
+	} else if (typeof msg.complete === "string") {
+		complete(msg.complete).then(sendResponse, () => sendResponse([]));
+		return true;
+	} else if (typeof msg.open === "string") {
+		open(sender.tab, msg.open, !!msg.newTab).catch(() => {});
 	} else if (msg.importDefaults) {
 		// Answered once stored, so the page can say whether it worked.
 		importDefaults().then(() => sendResponse(true), () => sendResponse(false));

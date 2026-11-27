@@ -27,7 +27,14 @@
 
 	function loadConfig(config) {
 		if (!config) return;
-		keymap = config.keymap || {};
+		keymap = { ...(config.keymap || {}) };
+		// A way back from any config: when nothing maps the command line, `:`
+		// does (if it is free), so :importConfig and :importDefaults are
+		// always reachable. This also covers the time before the defaults are
+		// stored on install.
+		if (!Object.values(keymap).includes("enterCommandMode") && !(":" in keymap)) {
+			keymap[":"] = "enterCommandMode";
+		}
 		userCss = config.css || "";
 		if (hintStyle) hintStyle.textContent = HINT_CSS + userCss;
 		settings = { ...VIMODE_DEFAULT_SETTINGS, ...(config.settings || {}) };
@@ -37,11 +44,7 @@
 			for (let i = 1; i < tokens.length; i++) prefixes.add(tokens.slice(0, i).join(" "));
 		}
 	}
-	// The default keymap is stored when the extension is installed; until that
-	// lands (or if it failed), `:` is the one key, so `:importConfig` and
-	// `:importDefaults` are reachable.
-	const BOOTSTRAP = { keymap: { ":": "enterCommandMode" } };
-	chrome.storage.local.get("config").then(({ config }) => loadConfig(config || BOOTSTRAP));
+	chrome.storage.local.get("config").then(({ config }) => loadConfig(config || {}));
 	chrome.storage.onChanged.addListener((changes, area) => {
 		if (area === "local" && changes.config) loadConfig(changes.config.newValue);
 	});
@@ -230,6 +233,8 @@
 		showHelp: () => toggleHelp(),
 		enterFindMode: () => openFind(),
 		importConfig: () => importConfig(),
+		open: () => openPrompt("command", "open "),
+		openInNewTab: () => openPrompt("command", "open -t "),
 		exportConfig: () => exportConfig(),
 		importDefaults: () => {
 			chrome.runtime.sendMessage({ importDefaults: true })
@@ -267,7 +272,7 @@
 	// Drawn by the top frame (the command line, the help screen) or kept there
 	// (the search, which covers the top document only), so a subframe hands
 	// them up.
-	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "exportConfig", "enterFindMode", "performFind", "performBackwardsFind"]);
+	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "exportConfig", "open", "openInNewTab", "enterFindMode", "performFind", "performBackwardsFind"]);
 
 	// ---- link hints ---------------------------------------------------------------
 	//
@@ -723,6 +728,9 @@
 			.completion .name { flex: none; width: 22ch; overflow: hidden; text-overflow: ellipsis; }
 			.completion .desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 			.completion .bind { flex: none; color: #8a8590; }
+			.completion.urls .name { flex: 1 1 0; width: auto; }
+			.completion.urls .desc { flex: 1 1 0; color: #b0aab8; }
+			.completion.urls .row.selected .desc { color: #ffffff; }
 			.completion .match { color: #cba6f7; }
 		</style>
 		<div class="completion"></div>
@@ -876,6 +884,20 @@
 	// storage. A picker needs a user gesture, which the key that ran the
 	// command is (an iframe's gesture counts for the top frame too).
 
+	// A config file's text, or { error } for one that cannot be: too big, or
+	// not text (a zip, an image) by its NUL bytes or invalid UTF-8.
+	const CONFIG_MAX_BYTES = 256 * 1024;
+	async function readConfigFile(file) {
+		if (file.size > CONFIG_MAX_BYTES) return { error: "is too big for a config" };
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		if (bytes.includes(0)) return { error: "is not a text file" };
+		try {
+			return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		} catch {
+			return { error: "is not a text file" };
+		}
+	}
+
 	function importConfig() {
 		const input = document.createElement("input");
 		input.type = "file";
@@ -883,13 +905,27 @@
 		input.addEventListener("change", async () => {
 			const { source = {} } = await chrome.storage.local.get("source");
 			const names = [];
+			let keymapPicked = false;
 			for (const file of input.files) {
-				const text = await file.text();
+				const text = await readConfigFile(file);
+				if (typeof text !== "string") {
+					flash(`Not imported: ${file.name} ${text.error}; the current config is kept`);
+					return;
+				}
 				if (file.name.toLowerCase().endsWith(".css")) source.css = { name: file.name, text };
-				else source.keymap = { name: file.name, text };
+				else {
+					source.keymap = { name: file.name, text };
+					keymapPicked = true;
+				}
 				names.push(file.name);
 			}
 			if (!names.length) return;
+			// A keymap that maps nothing is almost surely the wrong file, and
+			// would leave every key dead.
+			if (keymapPicked && !Object.keys(vimodeParse(source.keymap.text).keymap).length) {
+				flash(`Not imported: ${source.keymap.name} maps no keys; the current config is kept`);
+				return;
+			}
 			const parsed = await vimodeSaveConfig(source);
 			const skipped = parsed.errors.length;
 			flash(`Imported ${names.join(", ")}${skipped ? `, skipped ${skipped} line${skipped > 1 ? "s" : ""}` : ""}`);
@@ -1238,14 +1274,14 @@
 	// this, so walking it does not narrow it to the row just picked.
 	let typed = "";
 
-	function openPrompt(kind) {
+	function openPrompt(kind, value = "") {
 		const b = bar();
 		if (commandOpen) closeCommandLine();
 		commandOpen = true;
 		promptKind = kind;
 		selected = -1;
-		typed = "";
-		b.input.value = "";
+		typed = value;
+		b.input.value = value;
 		b.promptPrefix.textContent = kind === "find" ? "/" : ":";
 		render();
 		renderCompletion();
@@ -1307,8 +1343,85 @@
 		return frag;
 	}
 
+	// ---- :open -------------------------------------------------------------
+	//
+	// qutebrowser's: `open <url or search>` in the command line, `open -t` for
+	// a new tab. open and openInNewTab fill that in. While the line reads
+	// "open ...", the list holds bookmarks and history matching the rest
+	// (every word, in the URL or the title) instead of commands. Enter opens
+	// the row picked, or else what was typed: an address goes straight
+	// there, anything else to the browser's default search engine. Both
+	// lists and the opening come from the background worker, which owns those
+	// APIs.
+
+	// "open -t foo bar" -> { newTab: true, text: "foo bar" }; null when the
+	// line is not an open command.
+	function openArgs(value) {
+		const m = /^open\s(.*)$/s.exec(value);
+		if (!m) return null;
+		let text = m[1].trimStart();
+		let newTab = false;
+		if (text === "-t" || text.startsWith("-t ")) {
+			newTab = true;
+			text = text.slice(2).trimStart();
+		}
+		return { newTab, text };
+	}
+
+	let urlQuery = null;
+	let urlResults = [];
+
+	function renderUrlCompletion(args) {
+		const b = bar();
+		const query = args.text.trim();
+		if (query !== urlQuery) {
+			urlQuery = query;
+			urlResults = [];
+			chrome.runtime.sendMessage({ complete: query }).then((results) => {
+				if (urlQuery !== query || !commandOpen || !Array.isArray(results)) return;
+				urlResults = results;
+				renderCompletion();
+			}).catch(() => {});
+		}
+		matches = urlResults;
+		const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+		const list = b.completion;
+		list.replaceChildren();
+		list.classList.add("urls");
+		let category = null;
+		matches.forEach((item, i) => {
+			if (item.category !== category) {
+				category = item.category;
+				const head = document.createElement("div");
+				head.className = "category";
+				head.textContent = category;
+				list.append(head);
+			}
+			const row = document.createElement("div");
+			row.className = "row" + (i === selected ? " selected" : "");
+			const u = document.createElement("span");
+			u.className = "name";
+			u.append(highlight(item.url, words));
+			const t = document.createElement("span");
+			t.className = "desc";
+			t.append(highlight(item.title || "", words));
+			row.append(u, t);
+			list.append(row);
+		});
+		list.classList.add("open");
+		const row = list.querySelectorAll(".row")[selected];
+		if (row) row.scrollIntoView({ block: "nearest" });
+	}
+
 	function renderCompletion() {
 		const b = bar();
+		const args = openArgs(typed);
+		if (promptKind === "command" && args) {
+			renderUrlCompletion(args);
+			return;
+		}
+		urlQuery = null;
+		b.completion.classList.remove("urls");
 		const words = typed.trim().toLowerCase().split(/\s+/).filter(Boolean);
 		matches = Object.entries(VIMODE_COMMANDS)
 			.filter(([name]) => name !== "enterCommandMode")
@@ -1346,11 +1459,21 @@
 		selected = selected === -1
 			? (step > 0 ? 0 : matches.length - 1)
 			: (selected + step + matches.length) % matches.length;
-		bar().input.value = matches[selected];
+		const args = openArgs(typed);
+		bar().input.value = args
+			? `open ${args.newTab ? "-t " : ""}${matches[selected].url}`
+			: matches[selected];
 		renderCompletion();
 	}
 
 	function accept() {
+		const args = openArgs(bar().input.value);
+		if (args) {
+			const target = args.text.trim();
+			closeCommandLine();
+			if (target) chrome.runtime.sendMessage({ open: target, newTab: args.newTab }).catch(() => {});
+			return;
+		}
 		const typed = bar().input.value.trim();
 		const name = typed in VIMODE_COMMANDS ? typed
 			: selected !== -1 ? matches[selected]

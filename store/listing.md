@@ -19,6 +19,7 @@ Features:
 • Scrolling, history, and tab commands, with counts (3j, 2bd)
 • Link hints in every frame: click, open in a new tab, open several, copy the address, download
 • Find mode: / highlights every match as you type, n and N step through them
+• Open a URL or search (o, O) with bookmarks and history listed as you type
 • A command line (:) listing every command, filtered as you type
 • A key hint panel for half-typed sequences, and a help screen (?) with every mapped key
 • Custom hint characters and CSS
@@ -41,6 +42,9 @@ Keyboard navigation of web pages: Vim-style keys for scrolling, following links,
 - `sessions`: the restoreTab command reopens the last closed tab.
 - `clipboardWrite`: the copy commands put the page's URL or a link's address on the clipboard.
 - `webNavigation`: link hints list the frames of the current tab so links inside iframes get hints too.
+- `history`: the open command lists matching pages from the browser history to pick from as the user types.
+- `bookmarks`: the open command lists matching bookmarks to pick from as the user types.
+- `search`: text typed into the open command that is not an address is searched with the browser's default search engine.
 - Host permission (content script on all URLs): the keys, the status bar, link hints and find mode have to run on every page the user visits.
 
 **Remote code:** No, all code is in the package.
