@@ -263,7 +263,7 @@ async function completeInline(query, openCounts) {
 	if (best) return best.address.length > typed.length ? best.address : null;
 	// History's text search matches words, not paths, so it is asked for the
 	// host part and the rest is matched here.
-	const visits = await chrome.history.search({ text: typed.split("/")[0], startTime: 0, maxResults: 1000 });
+	const visits = await historyFor(typed.split("/")[0]);
 	const scores = new Map();
 	for (const h of visits) {
 		const address = bare(h.url);
@@ -276,6 +276,23 @@ async function completeInline(query, openCounts) {
 		if (!top || score > top[1]) top = [candidate, score];
 	}
 	return top && top[0].length > typed.length ? top[0] : null;
+}
+
+// History's own text search matches whole words ("yo" misses "youtube"), so
+// it is joined by the most recent entries, matched here by substring like
+// everything else. Those are read once and reused for a few seconds, since
+// a query arrives on every key.
+let recentHistory = null;
+let recentHistoryAt = 0;
+async function historyFor(query) {
+	if (!recentHistory || Date.now() - recentHistoryAt > 10000) {
+		recentHistory = await chrome.history.search({ text: "", startTime: 0, maxResults: 3000 });
+		recentHistoryAt = Date.now();
+	}
+	if (!query) return recentHistory;
+	const byText = await chrome.history.search({ text: query, startTime: 0, maxResults: 500 });
+	const urls = new Set(byText.map((h) => h.url));
+	return [...byText, ...recentHistory.filter((h) => !urls.has(h.url))];
 }
 
 // The list: what you opened most, then bookmarks, then history by visits,
@@ -293,7 +310,7 @@ async function completeList(query, openCounts) {
 		out.push({ category, url, title });
 	};
 	const marks = query ? await chrome.bookmarks.search(query) : await chrome.bookmarks.getRecent(10);
-	const visits = await chrome.history.search({ text: query, startTime: 0, maxResults: 200 });
+	const visits = await historyFor(query);
 	// A typed address was counted without a title; the browser knows it.
 	const titles = new Map([...visits, ...marks].filter((x) => x.url && x.title).map((x) => [countKey(x.url), x.title]));
 	const used = Object.entries(openCounts)

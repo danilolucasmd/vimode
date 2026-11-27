@@ -685,7 +685,7 @@
 			.bar.command .mode, .bar.command .url, .bar.command .keys { display: none; }
 			.completion {
 				position: fixed; left: 0; right: 0; bottom: 20px; z-index: 2147483647;
-				max-height: 40vh; overflow-y: auto; display: none;
+				height: 40vh; overflow-y: auto; display: none;
 				background: #2c292f; color: #dddddd;
 				font: 11px/18px "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
 				pointer-events: none;
@@ -1402,7 +1402,11 @@
 		const query = args.text.trim();
 		if (query !== urlQuery) {
 			urlQuery = query;
-			urlResults = [];
+			// Until the new results arrive, the old ones that still match stay
+			// up, so the list narrows smoothly instead of emptying and
+			// refilling on every key.
+			const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+			urlResults = urlResults.filter((item) => words.every((w) => (item.url + " " + (item.title || "")).toLowerCase().includes(w)));
 			chrome.runtime.sendMessage({ complete: query }).then((results) => {
 				if (urlQuery !== query || !commandOpen || !results || !Array.isArray(results.items)) return;
 				urlResults = results.items;
