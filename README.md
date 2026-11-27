@@ -1,3 +1,5 @@
+<img src="icons/icon-128.png" width="96" alt="Vimode logo">
+
 # Vimode
 
 Vim-style keyboard navigation for Chromium browsers, configured from a dotfile, with a qutebrowser-style status bar.
