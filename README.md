@@ -149,6 +149,68 @@ Keys are handled by a content script in every frame. The status bar is drawn by 
 
 Link hints follow Vimium's design. The background worker asks every frame how many elements it would hint, generates one set of hint strings with Vimium's algorithm (no hint is a prefix of another, and hints sharing a first character are spread across the page), and deals them out. From then on it receives the typed keys from whichever frame has focus, tells every frame what to show, and tells the frame that owns the match what to activate.
 
+## Roadmap
+
+What is done, and what is planned.
+
+**Modes and keys**
+
+- [x] Normal and insert mode
+- [x] Counts
+- [x] A keymap in a config file
+- [x] Fields a page focuses on load do not start insert mode
+- [x] Unmapped keys dropped in normal mode
+- [ ] Pass the next key to the page
+- [ ] Per-site rules to turn keys off (replacing the hardcoded WhatsApp exclusion)
+- [ ] Keys matched by position, independent of the keyboard layout
+
+**Scrolling**
+
+- [x] Step, half page, full page and edge scrolling
+- [ ] Smooth scrolling
+- [ ] Scrolling inner panels, not only the page
+
+**Navigation**
+
+- [x] Back and forward
+- [x] Up a level and to the root of the URL
+- [x] Reload
+- [x] Copy the page's URL
+- [x] Focus a text field
+- [ ] Open the URL on the clipboard
+- [ ] Previous and next page links
+- [ ] View source
+- [ ] Frame focus
+- [ ] Marks
+
+**Tabs**
+
+- [x] Switch, create, duplicate, close, restore, pin and move tabs
+- [x] Close others, to the left, to the right
+- [ ] Move a tab to a new window
+- [ ] Mute a tab
+
+**Link hints**
+
+- [x] Click, open in a background or foreground tab, open several, copy the link, download
+- [x] Hints in every frame
+- [x] Custom hint characters and CSS
+- [ ] Open in incognito
+- [ ] Pick a link by typing its text
+- [ ] Hover, focus and copy-link-text hints
+
+**Text**
+
+- [ ] Find mode
+- [ ] Visual and caret mode
+
+**Interface**
+
+- [x] Status bar
+- [x] Command line
+- [x] Key hint for half-typed sequences
+- [x] Help screen
+
 ## Limitations
 
 - Browsers keep extensions off their own pages (`chrome://` and `brave://` pages, the new tab page, the Web Store), so Vimode does nothing there.
