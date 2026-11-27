@@ -12,6 +12,7 @@ Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes 
 - **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
 - **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
 - **Works in every frame,** including Google Docs, whose editor types into a hidden iframe.
+- **A key hint,** like qutebrowser's. Pause halfway through a key sequence (after `g`, say) and a panel above the status bar lists every mapping that continues it, with its command.
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
 
@@ -63,6 +64,7 @@ map bd removeTab
 |---|---|---|
 | `scrollStepSize` | `60` | Pixels moved by `scrollDown`, `scrollUp`, `scrollLeft` and `scrollRight`. |
 | `grabBackFocus` | `false` | Undo a text field focusing itself as the page loads, until you press a key or click. Without it, a page that autofocuses a search box starts in insert mode. |
+| `keyhintDelay` | `500` | Milliseconds a half-typed key sequence waits before the key hint panel appears. Negative turns it off. |
 | `linkHintCharacters` | `sadfjklewcmpgh` | The characters link hints are made of. Shown in capitals. |
 | `passUnmappedKeys` | `true` | Whether a printable key with no mapping reaches the page in normal mode. Set it to `false` to drop such keys, as qutebrowser does; keys with Ctrl, Alt or Meta, and named keys like the arrows, space and Enter, still pass. Google Docs needs `false`: it takes any typed character as editing and switches to insert mode. |
 

@@ -74,6 +74,10 @@ const VIMODE_DEFAULT_SETTINGS = {
 	passUnmappedKeys: true,
 	// The characters link hints are made of, as in Vimium. Shown in capitals.
 	linkHintCharacters: "sadfjklewcmpgh",
+	// How long a half-typed key sequence waits before the panel listing its
+	// continuations appears, in ms, as qutebrowser's keyhint.delay. Negative
+	// turns the panel off.
+	keyhintDelay: 500,
 };
 
 // "gbo" -> ["g", "b", "o"]; "<c-o>x" -> ["<c-o>", "x"]. A bracketed name is

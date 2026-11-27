@@ -540,6 +540,7 @@
 	const frameState = () => ({
 		insert: document.hasFocus() && insertNow(),
 		keys: count + pending.join(""),
+		pending: [...pending],
 	});
 
 	let flashText = "";
@@ -656,6 +657,16 @@
 				pointer-events: none;
 			}
 			.completion.open { display: block; }
+			.keyhint {
+				position: fixed; left: 0; bottom: 20px; z-index: 2147483647;
+				display: none; padding: 4px 10px; border-top-right-radius: 6px;
+				background: #2c292fee; color: #dddddd;
+				font: 11px/17px "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+				pointer-events: none;
+			}
+			.keyhint.open { display: grid; grid-template-columns: auto auto; column-gap: 24px; }
+			.keyhint .typed { color: #8a8590; }
+			.keyhint .rest { color: #cba6f7; font-weight: 600; }
 			.completion .category {
 				padding: 0 8px; background: #231f26; color: #cba6f7; font-weight: 600;
 				border-top: 1px solid #231f26; border-bottom: 1px solid #231f26;
@@ -668,9 +679,11 @@
 			.completion .match { color: #cba6f7; }
 		</style>
 		<div class="completion"></div>
+		<div class="keyhint"></div>
 		<div class="bar"><span class="cmd">:<input spellcheck="false" autocomplete="off"></span><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
 		host.box = root.querySelector(".bar");
 		host.completion = root.querySelector(".completion");
+		host.keyhint = root.querySelector(".keyhint");
 		host.input = root.querySelector(".cmd input");
 		host.mode = root.querySelector(".mode");
 		host.url = root.querySelector(".url");
@@ -690,6 +703,7 @@
 		const own = frameState();
 		let insert = own.insert;
 		let keys = own.keys;
+		let pendingTokens = own.pending;
 		for (const [win, state] of frames) {
 			if (win.closed) {
 				frames.delete(win);
@@ -697,6 +711,7 @@
 			}
 			if (state.insert) insert = true;
 			if (state.keys) keys = state.keys;
+			if (state.pending && state.pending.length) pendingTokens = state.pending;
 		}
 		const b = bar();
 		const html = document.documentElement;
@@ -705,6 +720,7 @@
 		b.box.classList.toggle("command", commandOpen);
 		setText(b.mode, insert ? "-- INSERT --" : "");
 		setText(b.keys, keys);
+		keyhint(b, commandOpen ? [] : pendingTokens);
 		setText(b.url, flashText || pretty(hovered || location.href));
 		b.url.classList.toggle("hover", !flashText && hovered !== null);
 		b.url.classList.toggle("https", !flashText && location.protocol === "https:");
@@ -716,6 +732,60 @@
 		const inverted = html && html.getAttribute("data-darkreader-mode") === "filter";
 		b.box.style.filter = inverted ? "invert(100%) hue-rotate(180deg)" : "";
 		b.completion.style.filter = b.box.style.filter;
+	}
+
+	// ---- the key hint -------------------------------------------------------------
+	//
+	// qutebrowser's keyhint: once a key sequence is half typed ("b", "gb"), a
+	// panel above the bar lists every mapping that continues it, the typed
+	// part dimmed, the rest highlighted, and each one's command. It waits
+	// keyhintDelay ms (qutebrowser's 500 by default) so that a sequence typed
+	// without hesitating never flashes it; a negative delay turns it off.
+
+	let keyhintFor = "";
+	let keyhintShown = false;
+	let keyhintTimer = null;
+
+	function keyhint(b, tokens) {
+		const key = tokens.join(" ");
+		if (key !== keyhintFor) {
+			keyhintFor = key;
+			keyhintShown = false;
+			clearTimeout(keyhintTimer);
+			if (key && settings.keyhintDelay >= 0) {
+				keyhintTimer = setTimeout(() => {
+					keyhintShown = true;
+					render();
+				}, settings.keyhintDelay);
+			}
+		}
+		const list = b.keyhint;
+		if (!key || !keyhintShown) {
+			list.classList.remove("open");
+			return;
+		}
+		const rows = Object.entries(keymap)
+			.filter(([keys]) => keys.startsWith(key + " "))
+			.sort(([a], [b2]) => a.localeCompare(b2));
+		if (list.dataset.for !== key) {
+			list.dataset.for = key;
+			list.replaceChildren();
+			for (const [keys, command] of rows) {
+				const k = document.createElement("span");
+				const typed = document.createElement("span");
+				typed.className = "typed";
+				typed.textContent = tokens.join("");
+				const rest = document.createElement("span");
+				rest.className = "rest";
+				rest.textContent = keys.split(" ").slice(tokens.length).join("");
+				k.append(typed, rest);
+				const c = document.createElement("span");
+				c.textContent = command;
+				list.append(k, c);
+			}
+		}
+		list.classList.toggle("open", rows.length > 0);
+		list.style.filter = b.box.style.filter;
 	}
 
 	// ---- the command line ---------------------------------------------------------
