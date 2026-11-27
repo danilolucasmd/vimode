@@ -844,7 +844,7 @@
 			if (!groups.has(group)) groups.set(group, []);
 			groups.get(group).push([byCommand[name].join(" "), desc]);
 		}
-		showPanel("Vimode", groups, "Escape closes this. j and k scroll it.");
+		showPanel("Vimode", groups, "Escape closes this. j and k scroll it, Ctrl-D and Ctrl-U by half a page.");
 	}
 
 	// The help screen's overlay, also used to list what an import skipped:
@@ -993,6 +993,8 @@
 		}
 		else if (t === "j" || t === "<down>") panel.scrollBy(0, 60);
 		else if (t === "k" || t === "<up>") panel.scrollBy(0, -60);
+		else if (t === "<c-d>") panel.scrollBy(0, panel.clientHeight / 2);
+		else if (t === "<c-u>") panel.scrollBy(0, -panel.clientHeight / 2);
 		return true;
 	};
 
@@ -1450,8 +1452,16 @@
 			list.append(row);
 		});
 		list.classList.add("open");
+		scrollToSelected(list);
+	}
+
+	// The picked row in view; with none picked (a new prompt, or just typed),
+	// the top, headings included. The list keeps its scroll otherwise, even
+	// across prompts.
+	function scrollToSelected(list) {
 		const row = list.querySelectorAll(".row")[selected];
 		if (row) row.scrollIntoView({ block: "nearest" });
+		else list.scrollTop = 0;
 	}
 
 	function renderCompletion() {
@@ -1491,19 +1501,34 @@
 			list.append(row);
 		});
 		list.classList.toggle("open", promptKind === "command");
-		const row = list.querySelectorAll(".row")[selected];
-		if (row) row.scrollIntoView({ block: "nearest" });
+		scrollToSelected(list);
 	}
 
 	function move(step) {
 		if (!matches.length) return;
-		selected = selected === -1
+		select(selected === -1
 			? (step > 0 ? 0 : matches.length - 1)
-			: (selected + step + matches.length) % matches.length;
+			: (selected + step + matches.length) % matches.length);
+	}
+
+	// Ctrl+D and Ctrl+U: half the visible rows at a time, stopping at the
+	// ends rather than wrapping like Tab.
+	function movePage(dir) {
+		if (!matches.length) return;
+		const row = bar().completion.querySelector(".row");
+		const visible = row ? Math.floor(bar().completion.clientHeight / row.offsetHeight) : 10;
+		const step = Math.max(1, Math.floor(visible / 2));
+		const from = selected === -1 ? (dir > 0 ? -1 : matches.length) : selected;
+		select(Math.min(matches.length - 1, Math.max(0, from + dir * step)));
+	}
+
+	// Picks row i and fills the prompt with it, as Tab does.
+	function select(i) {
+		selected = i;
 		const args = openArgs(typed);
 		bar().input.value = args
-			? `open ${args.newTab ? "-t " : ""}${matches[selected].url}`
-			: matches[selected];
+			? `open ${args.newTab ? "-t " : ""}${matches[i].url}`
+			: matches[i];
 		renderCompletion();
 	}
 
@@ -1542,6 +1567,8 @@
 			"<up>": () => move(-1),
 			"<c-n>": () => move(1),
 			"<c-p>": () => move(-1),
+			"<c-d>": () => movePage(1),
+			"<c-u>": () => movePage(-1),
 		};
 		if (t in handlers) {
 			swallow(e);
