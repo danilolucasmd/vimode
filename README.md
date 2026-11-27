@@ -1,14 +1,14 @@
 # vimode
 
-Vim-style keyboard navigation for Chromium browsers, configured from a live-reloaded dotfile, with a qutebrowser-style status bar.
+Vim-style keyboard navigation for Chromium browsers, configured from a dotfile, with a qutebrowser-style status bar.
 
-vimode gives a browser a normal mode and an insert mode, like Vimium, and keeps its keymap in a plain text file instead of the extension's settings. Edit the file and every open tab picks up the change within a second, so the keymap can live in your dotfiles and follow you from machine to machine.
+vimode gives a browser a normal mode and an insert mode, like Vimium, and takes its keymap from a plain text file instead of a settings form, so the keymap can live in your dotfiles and follow you from machine to machine. Import the file on the options page, and again after each change.
 
 ## Features
 
 - **Modes that work like Vimium's.** Normal mode runs the keymap. Focusing a text field, or pressing the key mapped to `enterInsertMode`, switches to insert mode, where every key goes to the page. Escape leaves insert mode, and leaving a focused field blurs it. Keys the keymap does not use still reach the page in normal mode, so a site's own shortcuts keep working.
 - **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
-- **A live config file.** Saving the file applies it everywhere at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
+- **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
 - **Works in every frame,** including Google Docs, whose editor types into a hidden iframe.
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
@@ -17,7 +17,7 @@ vimode gives a browser a normal mode and an insert mode, like Vimium, and keeps 
 
 ## Install
 
-vimode is loaded unpacked, and it needs a small native messaging host to read its config file.
+vimode is loaded unpacked:
 
 1. Clone the repo:
 
@@ -25,23 +25,15 @@ vimode is loaded unpacked, and it needs a small native messaging host to read it
    git clone https://github.com/danilolucasmd/vimode.git ~/Code/vimode
    ```
 
-2. Register the native host:
+2. Open `brave://extensions` (or `chrome://extensions`), turn on Developer mode, click "Load unpacked" and choose the repo directory.
 
-   ```sh
-   ~/Code/vimode/host/install.sh
-   ```
-
-   This writes a `vimode.json` host manifest for each Chromium-family browser it finds in `~/.config` (Brave, Chromium, Google Chrome), pointing at `host/vimode_host.py`. It needs Python 3 and nothing else. Re-run it if you move the repo.
-
-3. Open `brave://extensions` (or `chrome://extensions`), turn on Developer mode, click "Load unpacked" and choose the repo directory.
-
-4. Create your config file (see below) and, if it is not at the default path, set its path on vimode's options page.
+3. Open vimode's options page (right-click the extension icon, then Options) and import your config files (see below).
 
 The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on vimode's card and reload open tabs.
 
 ## Configuration
 
-The default config path is `~/dotfiles/vimode/vimoderc`. Change it on the options page (right-click the extension icon, then Options). The page also shows when the file was last loaded and any lines that were skipped.
+The config is one or two files, imported on the options page: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. vimode keeps a copy, so import again after editing. The page shows what was imported, when, and any lines that were skipped.
 
 The file is the whole keymap: nothing is built in, so a key does something only if a line maps it. The syntax follows Vimium's:
 
@@ -131,7 +123,7 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 
 ### Styles
 
-A `style.css` next to the config file, if there is one, is watched and applied live too. Its rules come after vimode's defaults (Vimium's yellow labels), so they win:
+An imported `style.css` styles the hints. Its rules come after vimode's defaults (Vimium's yellow labels), so they win:
 
 | Selector | What it is |
 |---|---|
@@ -145,9 +137,7 @@ A `style.css` next to the config file, if there is one, is watched and applied l
 
 ## How it works
 
-An extension cannot read files outside its own directory, and an unpacked extension cannot follow a symlink out of it. So the background worker opens a native messaging connection to `host/vimode_host.py`, which watches the config file and sends its contents whenever it changes. The worker parses the file and stores the result in extension storage, where every tab's content script picks it up. The open connection also keeps the worker alive.
-
-The extension's ID is fixed by the `key` in `manifest.json`, so it is the same on every machine and from any directory. That lets `host/install.sh` hardcode it in the host manifest's `allowed_origins`, so only vimode can talk to the host.
+The options page parses the imported keymap and stores the result, with the raw files, in extension storage, where every tab's content script picks it up as soon as it changes. Importing is the one manual step: an extension cannot read or watch files on disk by itself.
 
 Keys are handled by a content script in every frame. The status bar is drawn by the top frame, and other frames report their mode to it.
 

@@ -1,60 +1,7 @@
-// The background worker: reads the config through the native host, and runs
-// the commands that need the tabs API.
+// The background worker: runs the commands that need the tabs API, and
+// coordinates link hints across frames. The config is imported on the options
+// page and read from extension storage by whoever needs it.
 importScripts("commands.js");
-
-const DEFAULT_CONFIG_PATH = "~/dotfiles/vimode/vimoderc";
-
-// ---- config ---------------------------------------------------------------
-//
-// An extension cannot read a file outside its own directory, and an unpacked
-// extension's directory cannot hold a symlink that leads out of it, so the
-// config comes through a native messaging host (host/vimode_host.py). The
-// host watches the file and sends its text on every change, so an edit to the
-// dotfile reaches every open tab within a second. The open port is also what
-// keeps this worker alive: Chrome does not suspend a worker holding one.
-
-let port = null;
-
-async function configPath() {
-	const { configPath } = await chrome.storage.local.get("configPath");
-	return configPath || DEFAULT_CONFIG_PATH;
-}
-
-async function setStatus(status) {
-	await chrome.storage.local.set({ status: { ...status, at: Date.now() } });
-}
-
-async function connect() {
-	port = chrome.runtime.connectNative("vimode");
-	port.onMessage.addListener(async (msg) => {
-		if (typeof msg.text === "string") {
-			const parsed = vimodeParse(msg.text);
-			await chrome.storage.local.set({
-				config: { keymap: parsed.keymap, settings: parsed.settings, css: msg.css || "" },
-			});
-			await setStatus({ ok: true, path: msg.path, errors: parsed.errors });
-		} else if (msg.error) {
-			await setStatus({ ok: false, path: msg.path, errors: [msg.error] });
-		}
-	});
-	port.onDisconnect.addListener(async () => {
-		const why = chrome.runtime.lastError ? chrome.runtime.lastError.message : "host exited";
-		port = null;
-		await setStatus({ ok: false, errors: [`native host: ${why}. Run host/install.sh in the vimode repo.`] });
-		// The last config keeps working meanwhile; retry in case the host was
-		// only just installed.
-		setTimeout(connect, 10000);
-	});
-	port.postMessage({ path: await configPath() });
-}
-
-chrome.storage.onChanged.addListener((changes, area) => {
-	if (area === "local" && "configPath" in changes && port) {
-		configPath().then((path) => port.postMessage({ path }));
-	}
-});
-
-connect();
 
 // ---- tab commands ---------------------------------------------------------
 

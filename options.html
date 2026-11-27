@@ -2,16 +2,24 @@
 <meta charset="utf-8">
 <title>vimode</title>
 <style>
-	body { font: 13px system-ui, sans-serif; margin: 16px; min-width: 420px; }
-	label { display: block; margin-bottom: 6px; font-weight: 600; }
-	input { width: 100%; box-sizing: border-box; font: 12px monospace; padding: 4px 6px; }
-	p { color: #666; }
-	#status { white-space: pre-wrap; font: 12px monospace; margin-top: 12px; }
+	body { font: 13px system-ui, sans-serif; margin: 24px; max-width: 640px; }
+	h1 { font-size: 18px; margin: 0 0 8px; }
+	p { color: #555; line-height: 1.5; }
+	button { font: inherit; padding: 6px 14px; cursor: pointer; }
+	#status { white-space: pre-wrap; font: 12px monospace; margin-top: 16px; }
 	.ok { color: #2a7a2a; }
 	.bad { color: #b02a2a; }
+	code { font-size: 12px; }
 </style>
-<label for="path">Config file</label>
-<input id="path" spellcheck="false">
-<p>Saved as you type. <code>~</code> is your home directory. The file is watched, so edits apply to every open tab within a second.</p>
+<h1>vimode</h1>
+<p>
+	Import your config: the keymap file (<code>vimoderc</code>) and, optionally,
+	<code>style.css</code>. Pick one or both; a file ending in <code>.css</code> is
+	taken as the styles, anything else as the keymap, and a file not picked keeps
+	what was imported before. Import again after editing them.
+</p>
+<button id="import">Import files...</button>
+<input id="files" type="file" multiple hidden>
 <div id="status"></div>
+<script src="commands.js"></script>
 <script src="options.js"></script>
