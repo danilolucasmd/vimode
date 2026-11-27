@@ -5,8 +5,9 @@
 // both, so it only defines globals.
 
 // Every command, where it runs ("page" in the frame the key was pressed in,
-// "tab" in the background worker, which owns the tabs API) and the line the
-// command line's completion shows for it.
+// "tab" in the background worker, which owns the tabs API, "hints" in the
+// background worker's hint coordinator) and the line the command line's
+// completion shows for it. The link hint commands keep Vimium's names.
 const VIMODE_COMMANDS = {
 	scrollDown: { where: "page", desc: "Scroll down one step" },
 	scrollUp: { where: "page", desc: "Scroll up one step" },
@@ -44,6 +45,22 @@ const VIMODE_COMMANDS = {
 	closeTabsOnRight: { where: "tab", desc: "Close the tabs to the right, except pinned ones" },
 	moveTabLeft: { where: "tab", desc: "Move this tab one place left" },
 	moveTabRight: { where: "tab", desc: "Move this tab one place right" },
+	"LinkHints.activateMode": { where: "hints", desc: "Hint links and click the one picked" },
+	"LinkHints.activateModeToOpenInNewTab": { where: "hints", desc: "Hint links and open the one picked in a background tab" },
+	"LinkHints.activateModeToOpenInNewForegroundTab": { where: "hints", desc: "Hint links and open the one picked in a new tab" },
+	"LinkHints.activateModeWithQueue": { where: "hints", desc: "Hint links and open each one picked in a background tab, until Escape" },
+	"LinkHints.activateModeToCopyLinkUrl": { where: "hints", desc: "Hint links and copy the address of the one picked" },
+	"LinkHints.activateModeToDownloadLink": { where: "hints", desc: "Hint links and download the one picked" },
+};
+
+// What each hint command does with the element picked.
+const VIMODE_HINT_MODES = {
+	"LinkHints.activateMode": "click",
+	"LinkHints.activateModeToOpenInNewTab": "newTab",
+	"LinkHints.activateModeToOpenInNewForegroundTab": "newForegroundTab",
+	"LinkHints.activateModeWithQueue": "queue",
+	"LinkHints.activateModeToCopyLinkUrl": "copy",
+	"LinkHints.activateModeToDownloadLink": "download",
 };
 
 const VIMODE_DEFAULT_SETTINGS = {
@@ -55,6 +72,8 @@ const VIMODE_DEFAULT_SETTINGS = {
 	// keys (arrows, space, Enter) still pass. Off is what keeps Google Docs in
 	// normal mode, since it refocuses its editor on any character typed.
 	passUnmappedKeys: true,
+	// The characters link hints are made of, as in Vimium. Shown in capitals.
+	linkHintCharacters: "sadfjklewcmpgh",
 };
 
 // "gbo" -> ["g", "b", "o"]; "<c-o>x" -> ["<c-o>", "x"]. A bracketed name is

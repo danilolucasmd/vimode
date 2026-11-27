@@ -2,9 +2,10 @@
 """vimode's native messaging host: watches the config file for the extension.
 
 The extension sends {"path": "..."} (on connect, and whenever the path is
-changed in the options page). The host answers with {"path", "text"} straight
-away and again every time the file changes, or {"path", "error"} while it
-cannot be read. Polling the mtime twice a second is plenty for a file edited by
+changed in the options page). The host answers with {"path", "text", "css"}
+straight away and again every time the config or the style.css beside it
+changes, or {"path", "error"} while the config cannot be read. style.css is
+optional: "css" is "" while it does not exist. Polling the mtime twice a second is plenty for a file edited by
 hand, and needs nothing outside the standard library.
 
 Messages are the native messaging framing: a 4-byte native-endian length, then
@@ -51,6 +52,22 @@ def expand(path):
     return os.path.expandvars(os.path.expanduser(path))
 
 
+def stamp(path):
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        return None
+
+
+def read_optional(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
 def main():
     path = None
     seen = None
@@ -66,14 +83,16 @@ def main():
         if path is None:
             continue
         full = expand(path)
+        css = os.path.join(os.path.dirname(full), "style.css")
         try:
-            st = os.stat(full)
-            stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
-            if stamp != seen:
+            now = (stamp(full), stamp(css))
+            if now[0] is None:
+                raise FileNotFoundError(2, "No such file or directory")
+            if now != seen:
                 with open(full, encoding="utf-8") as f:
                     text = f.read()
-                seen = stamp
-                send({"path": full, "text": text})
+                seen = now
+                send({"path": full, "text": text, "css": read_optional(css)})
         except OSError as e:
             if seen != "error":
                 seen = "error"

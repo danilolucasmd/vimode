@@ -13,7 +13,7 @@ vimode gives a browser a normal mode and an insert mode, like Vimium, and keeps 
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
 
-Link hints are not implemented yet.
+- **Link hints,** as in Vimium. A hint command labels every clickable thing on screen, in every frame, and typing a label picks it: click it, open it in a background or foreground tab, open several in a row, copy its address, or download it. Labels narrow as you type; Backspace undoes a character, Escape or a click cancels, holding Shift swaps opening in this tab and in a new one, and Space cycles labels that overlap.
 
 ## Install
 
@@ -69,6 +69,7 @@ map bd removeTab
 |---|---|---|
 | `scrollStepSize` | `60` | Pixels moved by `scrollDown`, `scrollUp`, `scrollLeft` and `scrollRight`. |
 | `grabBackFocus` | `false` | Undo a text field focusing itself as the page loads, until you press a key or click. Without it, a page that autofocuses a search box starts in insert mode. |
+| `linkHintCharacters` | `sadfjklewcmpgh` | The characters link hints are made of. Shown in capitals. |
 | `passUnmappedKeys` | `true` | Whether a printable key with no mapping reaches the page in normal mode. Set it to `false` to drop such keys, as qutebrowser does; keys with Ctrl, Alt or Meta, and named keys like the arrows, space and Enter, still pass. Google Docs needs `false`: it takes any typed character as editing and switches to insert mode. |
 
 ### Commands
@@ -117,6 +118,31 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 | `closeOtherTabs`, `closeTabsOnLeft`, `closeTabsOnRight` | Close tabs in bulk. Pinned tabs are kept. |
 | `moveTabLeft`, `moveTabRight` | Move this tab. |
 
+**Link hints** (Vimium's names and default keys)
+
+| Command | Vimium's key | What it does with the element picked |
+|---|---|---|
+| `LinkHints.activateMode` | `f` | Click it. A text field is focused instead. |
+| `LinkHints.activateModeToOpenInNewTab` | `F` | Open it in a background tab. |
+| `LinkHints.activateModeToOpenInNewForegroundTab` | | Open it in a new tab and switch to it. |
+| `LinkHints.activateModeWithQueue` | `<a-f>` | Open it in a background tab and hint again, until Escape. |
+| `LinkHints.activateModeToCopyLinkUrl` | `yf` | Copy its address. |
+| `LinkHints.activateModeToDownloadLink` | | Download it. |
+
+### Styles
+
+A `style.css` next to the config file, if there is one, is watched and applied live too. Its rules come after vimode's defaults (Vimium's yellow labels), so they win:
+
+| Selector | What it is |
+|---|---|
+| `.vimode-hint` | One link hint label. |
+| `.vimode-hint span` | One character of a label. |
+| `.vimode-hint .matched` | A character already typed. |
+
+```css
+.vimode-hint { background: #fff785; box-shadow: none; }
+```
+
 ## How it works
 
 An extension cannot read files outside its own directory, and an unpacked extension cannot follow a symlink out of it. So the background worker opens a native messaging connection to `host/vimode_host.py`, which watches the config file and sends its contents whenever it changes. The worker parses the file and stores the result in extension storage, where every tab's content script picks it up. The open connection also keeps the worker alive.
@@ -125,10 +151,12 @@ The extension's ID is fixed by the `key` in `manifest.json`, so it is the same o
 
 Keys are handled by a content script in every frame. The status bar is drawn by the top frame, and other frames report their mode to it.
 
+Link hints follow Vimium's design. The background worker asks every frame how many elements it would hint, generates one set of hint strings with Vimium's algorithm (no hint is a prefix of another, and hints sharing a first character are spread across the page), and deals them out. From then on it receives the typed keys from whichever frame has focus, tells every frame what to show, and tells the frame that owns the match what to activate.
+
 ## Limitations
 
 - Browsers keep extensions off their own pages (`chrome://` and `brave://` pages, the new tab page, the Web Store), so vimode does nothing there.
 - Scrolling moves the page itself. A site that scrolls an inner panel instead of the page does not respond to the scroll commands yet.
 - The status bar overlays the bottom 20px of the page, since an extension cannot resize the viewport.
 - `web.whatsapp.com` is excluded in `manifest.json`, since a page that is all typing has no use for normal mode. Edit `exclude_matches` to change that.
-- No link hints yet.
+- Hints come from a fixed list of clickable things (links, form controls, ARIA roles, click handlers, `tabindex`, Google's `jsaction`). An element that only a script listening on an ancestor makes clickable is not hinted. Vimium's text-filtering hint mode (`filterLinkHints`) is not implemented.

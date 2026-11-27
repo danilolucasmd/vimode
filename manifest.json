@@ -4,14 +4,32 @@
   "version": "0.1.0",
   "description": "Vim-style keys for the browser, configured from a dotfile, with a qutebrowser-style status bar.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsSwBJ3nS7izBeXMQFfYhsaCnjzR7WjpUdjMEqVgjuMsaSBuampajNYaB6WTNsQUxk9KvTydHKAqqIc2Mxa0IDPM83+gk9vQjjV+7UoqcG7Qp7rqiht+iUFLeeKOD2uTlQm0hoqBaFhS978orohGWwwf/DYJO6tdBsM0rtoxeSesNQF6DSNOw0T9I1Yp11jfGb0aVJIhK/8N9gW+ZzgcYns7Om/TDNHqD8I/IH+rVOrlwNCDTS0WeXnkpgAnvHRkkFKevtBRaVCRKY5MfCmcR4k1e6vlGlRxzF/HjYt3S8vcrLEy898kZyG2QmztHImnvst6y4+k/VA264CXE0LzGYwIDAQAB",
-  "permissions": ["storage", "nativeMessaging", "sessions", "clipboardWrite"],
-  "background": { "service_worker": "background.js" },
-  "options_ui": { "page": "options.html", "open_in_tab": false },
+  "permissions": [
+    "storage",
+    "nativeMessaging",
+    "sessions",
+    "clipboardWrite",
+    "webNavigation"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["https://web.whatsapp.com/*"],
-      "js": ["commands.js", "content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "exclude_matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "commands.js",
+        "content.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,

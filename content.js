@@ -22,10 +22,14 @@
 	let keymap = {};
 	let prefixes = new Set();
 	let settings = { ...VIMODE_DEFAULT_SETTINGS };
+	// style.css from beside the config, for the hints.
+	let userCss = "";
 
 	function loadConfig(config) {
 		if (!config) return;
 		keymap = config.keymap || {};
+		userCss = config.css || "";
+		if (hintStyle) hintStyle.textContent = HINT_CSS + userCss;
 		settings = { ...VIMODE_DEFAULT_SETTINGS, ...(config.settings || {}) };
 		prefixes = new Set();
 		for (const keys of Object.keys(keymap)) {
@@ -123,6 +127,10 @@
 	function onKeydown(e) {
 		if (e.isComposing) return;
 		if (commandKey(e)) return;
+		if (hintMode) {
+			hintKeydown(e);
+			return;
+		}
 		userActed = true;
 		const t = token(e);
 		if (!t) return;
@@ -232,13 +240,300 @@
 	};
 
 	function run(command, n) {
-		if (VIMODE_COMMANDS[command] && VIMODE_COMMANDS[command].where === "tab") {
+		const where = VIMODE_COMMANDS[command] && VIMODE_COMMANDS[command].where;
+		if (where === "tab") {
 			chrome.runtime.sendMessage({ tabCommand: command, count: n }).catch(() => {});
+		} else if (where === "hints") {
+			chrome.runtime.sendMessage({ hintsStart: command }).catch(() => {});
 		} else if (pageCommands[command]) {
 			pageCommands[command](n);
 		}
 		changed();
 	}
+
+	// ---- link hints ---------------------------------------------------------------
+	//
+	// Vimium's, frame by frame. The background worker (see "link hints" there)
+	// asks every frame to collect what it would hint, deals out the hint
+	// strings, and relays the typed keys; each frame draws its own labels,
+	// narrows them, and activates its element when the match is one of its
+	// own. Keys are sent from whichever frame has focus.
+
+	let hintMode = false;
+	let candidates = [];
+	let markers = [];
+	let hintHost = null;
+	let hintLayer = null;
+	let hintStyle = null;
+
+	// What Vimium hints: links, form controls, and anything a page has marked
+	// as clickable by role, handler, tabindex or Google's jsaction.
+	const CLICKABLE = [
+		"a[href]", "area[href]", "button", "input:not([type=hidden])", "select", "textarea",
+		"summary", "label[for]", "[onclick]", "[contenteditable]:not([contenteditable=false])",
+		"[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]",
+		"[role=menuitem]", "[role=menuitemcheckbox]", "[role=menuitemradio]", "[role=option]",
+		"[role=switch]", "[role=treeitem]", "[role=combobox]", "[tabindex]:not([tabindex='-1'])",
+		"[jsaction*='click']", "video[controls]", "audio[controls]",
+	].join(",");
+
+	// Vimium's default hint look: yellow gradient labels, dark bold capitals,
+	// typed characters faded. The user's style.css is appended after it, so
+	// any rule here can be overridden from the dotfiles. Matched characters
+	// carry .matched; each label is a .vimode-hint of one span per character.
+	const HINT_CSS = `
+		:host { all: initial; }
+		.layer { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; }
+		.vimode-hint {
+			position: fixed; display: block; white-space: nowrap; overflow: hidden;
+			padding: 1px 3px 0 3px; border: solid 1px #c38a22; border-radius: 3px;
+			background: linear-gradient(to bottom, #fff785 0%, #ffc542 100%);
+			box-shadow: 0 3px 7px 0 rgba(0, 0, 0, 0.3);
+			font: bold 11px Helvetica, Arial, sans-serif; line-height: normal;
+			color: #302505; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+		}
+		.vimode-hint .matched { color: #d4ac3a; }
+	`;
+
+	// Every root to search: the document and each open shadow root in it.
+	function roots(root, out = []) {
+		out.push(root);
+		for (const el of root.querySelectorAll("*")) if (el.shadowRoot) roots(el.shadowRoot, out);
+		return out;
+	}
+
+	// A frame scrolled out of its parent, or hidden offscreen as Google Docs
+	// does with its typing frame, hints nothing. A cross-origin frame cannot
+	// see its own frame element, so it is taken as visible.
+	function frameVisible() {
+		if (document.hidden || !innerWidth || !innerHeight) return false;
+		try {
+			const fe = window.frameElement;
+			if (fe) {
+				const r = fe.getBoundingClientRect();
+				const pw = fe.ownerDocument.defaultView;
+				if (r.width < 3 || r.height < 3 || r.bottom <= 0 || r.right <= 0
+					|| r.top >= pw.innerHeight || r.left >= pw.innerWidth) return false;
+			}
+		} catch {}
+		return true;
+	}
+
+	function clip(r) {
+		const box = {
+			left: Math.max(0, r.left), top: Math.max(0, r.top),
+			right: Math.min(innerWidth, r.right), bottom: Math.min(innerHeight, r.bottom),
+		};
+		return box.right - box.left >= 3 && box.bottom - box.top >= 3 ? box : null;
+	}
+
+	// The first on-screen box of an element. A link wrapping block content
+	// (an image, a card) often has no box of its own, so its children's count.
+	function visibleRect(el) {
+		for (const r of el.getClientRects()) {
+			const box = clip(r);
+			if (box) return box;
+		}
+		for (const child of el.children) {
+			for (const r of child.getClientRects()) {
+				const box = clip(r);
+				if (box) return box;
+			}
+		}
+		return null;
+	}
+
+	// Covered by something else (a modal, a sticky header) means not hinted.
+	function unobscured(el, rect, root) {
+		const points = [
+			[(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2],
+			[rect.left + 2, rect.top + 2],
+		];
+		for (const [x, y] of points) {
+			const hit = (root.elementFromPoint ? root : document).elementFromPoint(x, y);
+			if (hit && (hit === el || el.contains(hit) || hit.contains(el))) return true;
+		}
+		return false;
+	}
+
+	function collect() {
+		candidates = [];
+		if (!frameVisible()) return 0;
+		const found = [];
+		for (const root of roots(document)) {
+			for (const el of root.querySelectorAll(CLICKABLE)) {
+				if (el.disabled || getComputedStyle(el).visibility !== "visible") continue;
+				const rect = visibleRect(el);
+				if (rect && unobscured(el, rect, root)) found.push({ el, rect });
+			}
+		}
+		// A clickable inside another with the same box is one target, as
+		// Vimium treats it: keep the outer one.
+		const byEl = new Map(found.map((c) => [c.el, c]));
+		const same = (a, b) => ["left", "top", "right", "bottom"].every((k) => Math.abs(a[k] - b[k]) < 2);
+		candidates = found.filter(({ el, rect }) => {
+			for (let p = el.parentElement; p; p = p.parentElement) {
+				const outer = byEl.get(p);
+				if (outer && same(outer.rect, rect)) return false;
+			}
+			return true;
+		});
+		return candidates.length;
+	}
+
+	function layer() {
+		if (hintHost) return hintLayer;
+		hintHost = document.createElement("vimode-hints");
+		const root = hintHost.attachShadow({ mode: "closed" });
+		hintStyle = document.createElement("style");
+		hintStyle.textContent = HINT_CSS + userCss;
+		hintLayer = document.createElement("div");
+		hintLayer.className = "layer";
+		root.append(hintStyle, hintLayer);
+		(document.documentElement || document).append(hintHost);
+		// Dark Reader's filter mode inverts the page, labels included.
+		const html = document.documentElement;
+		if (html && html.getAttribute("data-darkreader-mode") === "filter") {
+			hintLayer.style.filter = "invert(100%) hue-rotate(180deg)";
+		}
+		return hintLayer;
+	}
+
+	function removeLayer() {
+		if (hintHost) hintHost.remove();
+		hintHost = hintLayer = hintStyle = null;
+		markers = [];
+	}
+
+	function showHints(hints) {
+		removeLayer();
+		hintMode = true;
+		reset();
+		if (hints.length) {
+			const l = layer();
+			markers = hints.map((hint, i) => {
+				const { el, rect } = candidates[i];
+				const node = document.createElement("div");
+				node.className = "vimode-hint";
+				node.style.left = `${rect.left}px`;
+				node.style.top = `${rect.top}px`;
+				for (const ch of hint.toUpperCase()) {
+					const span = document.createElement("span");
+					span.textContent = ch;
+					node.append(span);
+				}
+				l.append(node);
+				return { el, node, hint };
+			});
+		}
+		changed();
+	}
+
+	function filterHints(typed) {
+		for (const m of markers) {
+			const on = m.hint.startsWith(typed);
+			m.node.style.display = on ? "" : "none";
+			[...m.node.children].forEach((span, i) => span.classList.toggle("matched", on && i < typed.length));
+		}
+	}
+
+	// Space, as in Vimium: labels that overlap change which is on top.
+	function rotateHints() {
+		if (hintLayer) hintLayer.append(...[...hintLayer.children].reverse());
+	}
+
+	function exitHints() {
+		hintMode = false;
+		candidates = [];
+		removeLayer();
+		changed();
+	}
+
+	function hintKeydown(e) {
+		swallow(e);
+		if (e.repeat && e.key === "Shift") return;
+		const key = e.key === "Shift" ? "ShiftDown"
+			: e.key === " " ? "Space"
+			: ["Escape", "Backspace"].includes(e.key) ? e.key
+			: e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey ? e.key
+			: null;
+		if (key) chrome.runtime.sendMessage({ hintsKey: key }).catch(() => {});
+	}
+	window.addEventListener("keyup", (e) => {
+		if (hintMode && e.key === "Shift") {
+			swallow(e);
+			chrome.runtime.sendMessage({ hintsKey: "ShiftUp" }).catch(() => {});
+		}
+	}, true);
+	// A click anywhere ends hint mode, as Escape would.
+	window.addEventListener("mousedown", () => {
+		if (hintMode) chrome.runtime.sendMessage({ hintsKey: "Escape" }).catch(() => {});
+	}, true);
+
+	// Vimium's DomUtils.simulateClick: the whole pointer sequence, so handlers
+	// listening for mousedown or pointerup fire as well as onclick ones.
+	function simulateClick(el, mods = {}) {
+		for (const type of ["pointerover", "mouseover", "pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+			const Event = type.startsWith("pointer") ? PointerEvent : MouseEvent;
+			el.dispatchEvent(new Event(type, {
+				bubbles: true, cancelable: true, composed: true, view: window, button: 0, ...mods,
+			}));
+		}
+	}
+
+	// A brief outline around what was picked, as Vimium shows.
+	function flashElement(el) {
+		const r = visibleRect(el);
+		if (!r) return;
+		const host = document.createElement("vimode-hints");
+		const box = document.createElement("div");
+		Object.assign(box.style, {
+			position: "fixed", left: `${r.left}px`, top: `${r.top}px`,
+			width: `${r.right - r.left}px`, height: `${r.bottom - r.top}px`,
+			border: "2px solid #ff8040", borderRadius: "3px", boxSizing: "border-box",
+			zIndex: "2147483647", pointerEvents: "none",
+		});
+		host.attachShadow({ mode: "closed" }).append(box);
+		(document.documentElement || document).append(host);
+		setTimeout(() => host.remove(), 400);
+	}
+
+	function activateHint(index, mode) {
+		const m = markers[index];
+		if (!m) return;
+		const el = m.el;
+		userActed = true;
+		flashElement(el);
+		const link = el.closest("a[href], area[href]");
+		const url = link && link.href && !/^javascript:/i.test(link.href) ? link.href : null;
+		if (mode === "copy") {
+			if (!url) return flash("No link to copy");
+			navigator.clipboard.writeText(url).then(() => flash(`Yanked ${url}`), () => flash("Could not copy the link"));
+		} else if (mode === "newTab" || mode === "newForegroundTab" || mode === "queue") {
+			if (url) chrome.runtime.sendMessage({ openUrl: url, active: mode === "newForegroundTab" }).catch(() => {});
+			else simulateClick(el, { ctrlKey: true, shiftKey: mode === "newForegroundTab" });
+		} else if (mode === "download") {
+			simulateClick(el, { altKey: true });
+		} else if (editable(el) || el.tagName === "SELECT") {
+			el.focus();
+		} else {
+			simulateClick(el);
+			if (el.matches("button, input, [tabindex]")) el.focus({ preventScroll: true });
+		}
+	}
+
+	chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+		const h = msg && msg.vimodeHints;
+		if (!h) return;
+		if (h.op === "collect") return sendResponse({ count: collect() });
+		if (h.op === "show") showHints(h.hints);
+		else if (h.op === "filter") filterHints(h.typed);
+		else if (h.op === "rotate") rotateHints();
+		else if (h.op === "activate") activateHint(h.index, h.mode);
+		else if (h.op === "exit") exitHints();
+		else if (h.op === "flash") flash(h.text);
+		sendResponse({});
+	});
 
 	// ---- reporting, and the bar ---------------------------------------------------
 
