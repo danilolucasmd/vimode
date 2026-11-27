@@ -37,9 +37,10 @@
 			for (let i = 1; i < tokens.length; i++) prefixes.add(tokens.slice(0, i).join(" "));
 		}
 	}
-	// The last config the host delivered, kept in storage across restarts, so
-	// keys work before the host has answered this time.
-	chrome.storage.local.get("config").then(({ config }) => loadConfig(config));
+	// Until a config is imported, `:` is the one key, so that
+	// `:importConfig` is reachable.
+	const BOOTSTRAP = { keymap: { ":": "enterCommandMode" } };
+	chrome.storage.local.get("config").then(({ config }) => loadConfig(config || BOOTSTRAP));
 	chrome.storage.onChanged.addListener((changes, area) => {
 		if (area === "local" && changes.config) loadConfig(changes.config.newValue);
 	});
@@ -146,6 +147,8 @@
 			} else if (pending.length || count) {
 				reset();
 				swallow(e);
+			} else if (findEscape()) {
+				swallow(e);
 			}
 			changed();
 			return;
@@ -222,16 +225,12 @@
 			);
 		},
 		enterInsertMode: () => { insertMode = true; },
-		// The command line is drawn by the top frame, so a subframe asks it to
-		// open there.
-		enterCommandMode: () => {
-			if (isTop) openCommandLine();
-			else window.top.postMessage({ [TAG]: { openCommandLine: true } }, "*");
-		},
-		showHelp: () => {
-			if (isTop) toggleHelp();
-			else window.top.postMessage({ [TAG]: { toggleHelp: true } }, "*");
-		},
+		enterCommandMode: () => openCommandLine(),
+		showHelp: () => toggleHelp(),
+		enterFindMode: () => openFind(),
+		importConfig: () => importConfig(),
+		performFind: (n) => findNext(n, 1),
+		performBackwardsFind: (n) => findNext(n, -1),
 		focusInput: (n) => {
 			const visible = (el) => {
 				const r = el.getBoundingClientRect();
@@ -250,11 +249,18 @@
 			chrome.runtime.sendMessage({ tabCommand: command, count: n }).catch(() => {});
 		} else if (where === "hints") {
 			chrome.runtime.sendMessage({ hintsStart: command }).catch(() => {});
+		} else if (TOP_ONLY.has(command) && !isTop) {
+			window.top.postMessage({ [TAG]: { topCommand: command, count: n } }, "*");
 		} else if (pageCommands[command]) {
 			pageCommands[command](n);
 		}
 		changed();
 	}
+
+	// Drawn by the top frame (the command line, the help screen) or kept there
+	// (the search, which covers the top document only), so a subframe hands
+	// them up.
+	const TOP_ONLY = new Set(["enterCommandMode", "showHelp", "importConfig", "enterFindMode", "performFind", "performBackwardsFind"]);
 
 	// ---- link hints ---------------------------------------------------------------
 	//
@@ -580,6 +586,7 @@
 	// screen.
 	let commandKey = () => false;
 	let helpKey = () => false;
+	let findEscape = () => false;
 
 	if (!isTop) return;
 
@@ -590,8 +597,7 @@
 		const msg = e.data && typeof e.data === "object" ? e.data[TAG] : undefined;
 		if (!msg || typeof msg !== "object") return;
 		if (typeof msg.flash === "string") flash(msg.flash);
-		else if (msg.openCommandLine) openCommandLine();
-		else if (msg.toggleHelp) toggleHelp();
+		else if (TOP_ONLY.has(msg.topCommand)) run(msg.topCommand, Math.max(1, Number(msg.count) || 1));
 		else frames.set(e.source, msg);
 		changed();
 	});
@@ -654,6 +660,8 @@
 				all: unset; flex: 1; min-width: 0; color: #dddddd; caret-color: #dddddd;
 				font: inherit; pointer-events: auto;
 			}
+			.cmd .count { flex: none; padding-left: 16px; }
+			.cmd .count.none { color: #f38ba8; }
 			.bar.command { background: #2c292f; }
 			.bar.command .cmd { display: flex; }
 			.bar.command .mode, .bar.command .url, .bar.command .keys { display: none; }
@@ -713,7 +721,7 @@
 		<div class="completion"></div>
 		<div class="keyhint"></div>
 		<div class="help"><div class="panel"></div></div>
-		<div class="bar"><span class="cmd">:<input spellcheck="false" autocomplete="off"></span><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
+		<div class="bar"><span class="cmd"><span class="prefix">:</span><input spellcheck="false" autocomplete="off"><span class="count"></span></span><span class="mode"></span><span class="url"></span><span class="keys"></span></div>`;
 		host.box = root.querySelector(".bar");
 		host.completion = root.querySelector(".completion");
 		host.keyhint = root.querySelector(".keyhint");
@@ -725,12 +733,19 @@
 		host.mode = root.querySelector(".mode");
 		host.url = root.querySelector(".url");
 		host.keys = root.querySelector(".keys");
+		host.promptPrefix = root.querySelector(".cmd .prefix");
+		host.count = root.querySelector(".cmd .count");
 		host.input.addEventListener("input", () => {
 			typed = host.input.value;
+			if (promptKind === "find") {
+				findType(typed);
+				return;
+			}
 			selected = -1;
 			renderCompletion();
 		});
-		host.input.addEventListener("blur", () => closeCommandLine());
+		// Clicking away from a search keeps it, as Enter does.
+		host.input.addEventListener("blur", () => (promptKind === "find" ? acceptFind() : closeCommandLine()));
 		return host;
 	}
 
@@ -758,7 +773,9 @@
 		b.box.classList.toggle("insert", insert && !hintMode && !commandOpen);
 		b.box.classList.toggle("command", commandOpen);
 		setText(b.mode, hintMode ? "-- HINT --" : insert ? "-- INSERT --" : "");
-		setText(b.keys, keys);
+		setText(b.keys, keys || findStatus());
+		setText(b.count, promptKind === "find" ? findStatus() || (typed ? "[0/0]" : "") : "");
+		b.count.classList.toggle("none", promptKind === "find" && !!typed && !findMatches.length);
 		keyhint(b, commandOpen ? [] : pendingTokens);
 		setText(b.url, flashText || pretty(hovered || location.href));
 		b.url.classList.toggle("hover", !flashText && hovered !== null);
@@ -791,16 +808,23 @@
 	function openHelp() {
 		const b = bar();
 		const byCommand = bindings();
-		const groups = new Map(["Modes", "Scrolling", "Navigation", "Tabs", "Link hints"].map((g) => [g, []]));
+		const groups = new Map(["Modes", "Scrolling", "Navigation", "Find", "Tabs", "Link hints", "Vimode"].map((g) => [g, []]));
 		for (const [name, { desc, group }] of Object.entries(VIMODE_COMMANDS)) {
 			if (!byCommand[name]) continue;
 			if (!groups.has(group)) groups.set(group, []);
 			groups.get(group).push([byCommand[name].join(" "), desc]);
 		}
+		showPanel("Vimode", groups, "Escape closes this. j and k scroll it.");
+	}
+
+	// The help screen's overlay, also used to list what an import skipped:
+	// a title, then sections of [left, right] rows in two columns.
+	function showPanel(heading, groups, footer) {
+		const b = bar();
 		const panel = b.help.querySelector(".panel");
 		panel.replaceChildren();
 		const title = document.createElement("h1");
-		title.textContent = "Vimode";
+		title.textContent = heading;
 		const columns = document.createElement("div");
 		columns.className = "groups";
 		for (const [group, rows] of groups) {
@@ -825,7 +849,7 @@
 		}
 		const foot = document.createElement("div");
 		foot.className = "hint";
-		foot.textContent = "Escape closes this. j and k scroll it.";
+		foot.textContent = footer;
 		panel.append(title, columns, foot);
 		panel.scrollTop = 0;
 		b.help.style.filter = b.box.style.filter;
@@ -834,6 +858,47 @@
 		// Keys for the help screen are read here, in the top frame, so focus
 		// comes out of any iframe it was in (Google Docs' editor, say).
 		if (document.activeElement && document.activeElement.tagName === "IFRAME") document.activeElement.blur();
+	}
+
+	// ---- importing the config -------------------------------------------------
+	//
+	// A file picker, since an extension cannot read files on disk by path. A
+	// file ending in .css is taken as the styles, anything else as the keymap,
+	// and a file not picked keeps what was imported before; the raw texts are
+	// kept in storage for that. Every tab picks the new config up from
+	// storage. A picker needs a user gesture, which the key that ran the
+	// command is (an iframe's gesture counts for the top frame too).
+
+	function importConfig() {
+		const input = document.createElement("input");
+		input.type = "file";
+		input.multiple = true;
+		input.addEventListener("change", async () => {
+			const { source = {} } = await chrome.storage.local.get("source");
+			const names = [];
+			for (const file of input.files) {
+				const text = await file.text();
+				if (file.name.toLowerCase().endsWith(".css")) source.css = { name: file.name, text };
+				else source.keymap = { name: file.name, text };
+				names.push(file.name);
+			}
+			if (!names.length) return;
+			const parsed = vimodeParse(source.keymap ? source.keymap.text : "");
+			await chrome.storage.local.set({
+				source,
+				config: {
+					keymap: parsed.keymap,
+					settings: parsed.settings,
+					css: source.css ? source.css.text : "",
+				},
+			});
+			const skipped = parsed.errors.length;
+			flash(`Imported ${names.join(", ")}${skipped ? `, skipped ${skipped} line${skipped > 1 ? "s" : ""}` : ""}`);
+			if (skipped) {
+				showPanel("Import", new Map([[source.keymap.name, parsed.errors]]), "These lines were skipped; the rest loaded. Escape closes this.");
+			}
+		});
+		input.click();
 	}
 
 	function closeHelp() {
@@ -908,6 +973,224 @@
 		list.style.filter = b.box.style.filter;
 	}
 
+	// ---- find mode ---------------------------------------------------------------
+	//
+	// `/` opens a prompt in the bar; every match on the page is highlighted as
+	// you type, the first one at or below where you were scrolled is the
+	// current one (in orange) and is brought into view. Enter keeps the
+	// highlights, and focuses the current match's link when it is inside one,
+	// so a second Enter follows it; Escape puts the page back where it was.
+	// performFind and performBackwardsFind step through the last search,
+	// wrapping at the ends, and Escape in normal mode clears the highlights.
+	// Lowercase searches ignore case, any capital makes them exact (smartcase).
+	//
+	// The matches are found in the page's text nodes rather than with
+	// window.find, which moves the selection (and focus with it) out of the
+	// prompt, and drawn with the CSS Custom Highlight API, which never touches
+	// the page's DOM. Only the top document is searched: text in iframes, in
+	// shadow roots, or drawn on a canvas (Google Docs) is not found.
+
+	const FIND_SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "SELECT", "OPTION"]);
+	const FIND_CSS = `
+		::highlight(vimode-find) { background-color: #f9e2af; color: #1e1b22; }
+		::highlight(vimode-find-current) { background-color: #fab387; color: #1e1b22; }
+	`;
+	// Highlights a range per match; past this many the page is not worth it.
+	const FIND_LIMIT = 5000;
+	let findQuery = "";
+	let findMatches = [];
+	let findIndex = -1;
+	let findOrigin = null;
+	let findStyle = null;
+	let findFocused = null;
+
+	// The page's visible text as one string, with where each text node starts
+	// in it, so a match can span nodes ("foo<b>bar</b>").
+	function pageText() {
+		const nodes = [];
+		let text = "";
+		const visible = new Map();
+		const root = document.body || document.documentElement;
+		if (!root) return { nodes, text };
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+			acceptNode(node) {
+				const el = node.parentElement;
+				if (!el || FIND_SKIP.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+				let v = visible.get(el);
+				if (v === undefined) {
+					v = el.checkVisibility({ visibilityProperty: true });
+					visible.set(el, v);
+				}
+				return v ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+			},
+		});
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			nodes.push({ node: n, start: text.length });
+			text += n.data;
+		}
+		return { nodes, text };
+	}
+
+	function findAll(query) {
+		if (!query) return [];
+		const { nodes, text } = pageText();
+		const exact = query !== query.toLowerCase();
+		const hay = exact ? text : text.toLowerCase();
+		const needle = exact ? query : query.toLowerCase();
+		const ranges = [];
+		let k = 0;
+		for (let i = hay.indexOf(needle); i !== -1 && ranges.length < FIND_LIMIT; i = hay.indexOf(needle, i + needle.length)) {
+			const end = i + needle.length;
+			while (k + 1 < nodes.length && nodes[k + 1].start <= i) k++;
+			let m = k;
+			while (m + 1 < nodes.length && nodes[m + 1].start < end) m++;
+			const r = document.createRange();
+			r.setStart(nodes[k].node, i - nodes[k].start);
+			r.setEnd(nodes[m].node, end - nodes[m].start);
+			ranges.push(r);
+		}
+		return ranges;
+	}
+
+	function findStatus() {
+		return findMatches.length ? `[${findIndex + 1}/${findMatches.length}]` : "";
+	}
+
+	function paintFind() {
+		if (!findStyle) {
+			findStyle = document.createElement("style");
+			findStyle.textContent = FIND_CSS;
+		}
+		if (!findStyle.isConnected && document.documentElement) document.documentElement.append(findStyle);
+		const current = new Highlight(...(findIndex >= 0 ? [findMatches[findIndex]] : []));
+		current.priority = 1;
+		CSS.highlights.set("vimode-find", new Highlight(...findMatches));
+		CSS.highlights.set("vimode-find-current", current);
+		render();
+	}
+
+	function clearFind() {
+		findMatches = [];
+		findIndex = -1;
+		CSS.highlights.delete("vimode-find");
+		CSS.highlights.delete("vimode-find-current");
+		if (findStyle) findStyle.remove();
+		unfocusFind();
+		render();
+	}
+
+	// The link a match is in gets focus, as in Vimium, so Enter follows it;
+	// the focus is taken back when the search moves on.
+	function unfocusFind() {
+		if (findFocused && document.activeElement === findFocused) findFocused.blur();
+		findFocused = null;
+	}
+
+	function focusMatch() {
+		unfocusFind();
+		const r = findMatches[findIndex];
+		const el = r && r.startContainer.parentElement;
+		const link = el && el.closest("a[href], button, [role=link], [role=button]");
+		if (link) {
+			link.focus({ preventScroll: true });
+			findFocused = link;
+		}
+	}
+
+	function revealMatch() {
+		const r = findMatches[findIndex];
+		if (!r) return;
+		const rect = r.getBoundingClientRect();
+		// 20px is the bar.
+		if (rect.top < 0 || rect.bottom > window.innerHeight - 20 || rect.left < 0 || rect.right > window.innerWidth) {
+			r.startContainer.parentElement.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+		}
+	}
+
+	function openFind() {
+		findOrigin = { x: window.scrollX, y: window.scrollY };
+		clearFind();
+		openPrompt("find");
+	}
+
+	// Incremental: each keystroke searches again from where the page was when
+	// the prompt opened.
+	function findType(query) {
+		window.scrollTo({ left: findOrigin.x, top: findOrigin.y, behavior: "instant" });
+		findMatches = findAll(query);
+		findIndex = findMatches.findIndex((r) => r.getBoundingClientRect().top >= 0);
+		if (findIndex === -1 && findMatches.length) findIndex = 0;
+		revealMatch();
+		paintFind();
+	}
+
+	function acceptFind() {
+		const query = typed || findQuery;
+		closeCommandLine();
+		if (!query) return;
+		findQuery = query;
+		if (!typed) findType(query);
+		if (!findMatches.length) {
+			clearFind();
+			flash(`Text not found: ${query}`);
+			return;
+		}
+		focusMatch();
+		render();
+	}
+
+	function cancelFind() {
+		closeCommandLine();
+		clearFind();
+		if (findOrigin) window.scrollTo({ left: findOrigin.x, top: findOrigin.y, behavior: "instant" });
+	}
+
+	// n and N: the page may have changed since, so the search runs again and
+	// picks up after the current match, or after the top of the screen when
+	// that match is gone.
+	function findNext(n, step) {
+		if (!findQuery) {
+			flash("No previous search");
+			return;
+		}
+		const prev = findMatches[findIndex];
+		findMatches = findAll(findQuery);
+		if (!findMatches.length) {
+			clearFind();
+			flash(`Text not found: ${findQuery}`);
+			return;
+		}
+		let i;
+		if (prev && prev.startContainer.isConnected) {
+			const after = (r) => r.compareBoundaryPoints(Range.START_TO_START, prev) > 0;
+			const before = (r) => r.compareBoundaryPoints(Range.START_TO_START, prev) < 0;
+			i = step > 0 ? findMatches.findIndex(after) : findMatches.findLastIndex(before);
+		} else {
+			i = step > 0
+				? findMatches.findIndex((r) => r.getBoundingClientRect().top >= 0)
+				: findMatches.findLastIndex((r) => r.getBoundingClientRect().bottom <= window.innerHeight - 20);
+		}
+		n -= 1;
+		let wrapped = i === -1;
+		if (i === -1) i = step > 0 ? 0 : findMatches.length - 1;
+		for (; n > 0; n--) {
+			const j = i + step;
+			if (j < 0 || j >= findMatches.length) wrapped = true;
+			i = (j + findMatches.length) % findMatches.length;
+		}
+		findIndex = i;
+		revealMatch();
+		paintFind();
+		focusMatch();
+		if (wrapped) flash(step > 0 ? "Search hit BOTTOM, continuing at TOP" : "Search hit TOP, continuing at BOTTOM");
+	}
+
+	findEscape = () => {
+		if (!findMatches.length) return false;
+		clearFind();
+		return true;
+	};
+
 	// ---- the command line ---------------------------------------------------------
 	//
 	// qutebrowser's, cut down to commands: `:` (enterCommandMode) opens a
@@ -925,26 +1208,39 @@
 	// characters still land in the input.
 
 	let commandOpen = false;
+	// Which prompt is open: "command" (`:`) or "find" (`/`, see find mode).
+	let promptKind = null;
 	let selected = -1;
 	let matches = [];
 	// What was typed, as opposed to what Tab filled in: the list filters on
 	// this, so walking it does not narrow it to the row just picked.
 	let typed = "";
 
-	function openCommandLine() {
+	function openPrompt(kind) {
 		const b = bar();
+		if (commandOpen) closeCommandLine();
 		commandOpen = true;
+		promptKind = kind;
 		selected = -1;
 		typed = "";
 		b.input.value = "";
+		b.promptPrefix.textContent = kind === "find" ? "/" : ":";
 		render();
 		renderCompletion();
+		// Out of any iframe that had focus, or its keys would never reach the
+		// prompt.
+		if (document.activeElement && document.activeElement.tagName === "IFRAME") document.activeElement.blur();
 		b.input.focus();
+	}
+
+	function openCommandLine() {
+		openPrompt("command");
 	}
 
 	function closeCommandLine() {
 		if (!commandOpen) return;
 		commandOpen = false;
+		promptKind = null;
 		const b = bar();
 		b.completion.classList.remove("open");
 		if (b.input.matches(":focus")) b.input.blur();
@@ -1018,7 +1314,7 @@
 			row.append(n, d, k);
 			list.append(row);
 		});
-		list.classList.toggle("open", commandOpen);
+		list.classList.toggle("open", promptKind === "command");
 		const row = list.querySelectorAll(".row")[selected];
 		if (row) row.scrollIntoView({ block: "nearest" });
 	}
@@ -1046,7 +1342,10 @@
 	commandKey = (e) => {
 		if (!commandOpen || e.target !== host) return false;
 		const t = token(e);
-		const handlers = {
+		const handlers = promptKind === "find" ? {
+			"<esc>": cancelFind,
+			"<enter>": acceptFind,
+		} : {
 			"<esc>": closeCommandLine,
 			"<enter>": accept,
 			"<tab>": () => move(1),

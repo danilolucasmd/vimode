@@ -32,6 +32,11 @@ const VIMODE_COMMANDS = {
 	enterCommandMode: { where: "page", desc: "Open the command line", group: "Modes" },
 	showHelp: { where: "page", desc: "Show every mapped key, grouped", group: "Modes" },
 	focusInput: { where: "page", desc: "Focus the first text field on the page", group: "Modes" },
+	enterFindMode: { where: "page", desc: "Search the page for text, highlighting every match", group: "Find" },
+	performFind: { where: "page", desc: "Go to the next match of the last search", group: "Find" },
+	performBackwardsFind: { where: "page", desc: "Go to the previous match of the last search", group: "Find" },
+	importConfig: { where: "page", desc: "Import the config: pick vimoderc, style.css, or both", group: "Vimode" },
+	reloadExtension: { where: "tab", desc: "Reload Vimode from its directory, and this tab with it", group: "Vimode" },
 	nextTab: { where: "tab", desc: "Go to the next tab", group: "Tabs" },
 	previousTab: { where: "tab", desc: "Go to the previous tab", group: "Tabs" },
 	firstTab: { where: "tab", desc: "Go to the first tab", group: "Tabs" },
@@ -112,8 +117,9 @@ function vimodeNormalizeToken(token) {
 
 // Parses a vimoderc into the keymap. Returns
 // { keymap: { "g b o": "closeOtherTabs", ... }, settings, errors }, keys
-// joined by spaces. Unknown commands and malformed lines are reported in
-// errors and skipped, so one typo never takes the whole keymap down.
+// joined by spaces, errors as ["line 3", "unknown command: map x foo"].
+// Unknown commands and malformed lines are reported in errors and skipped, so
+// one typo never takes the whole keymap down.
 function vimodeParse(text) {
 	const keymap = {};
 	const settings = { ...VIMODE_DEFAULT_SETTINGS };
@@ -122,24 +128,24 @@ function vimodeParse(text) {
 		const line = raw.trim();
 		if (!line || line.startsWith("#") || line.startsWith('"')) return;
 		const [cmd, ...args] = line.split(/\s+/);
-		const where = `line ${n + 1}: ${line}`;
+		const skip = (reason) => errors.push([`line ${n + 1}`, `${reason}: ${line}`]);
 		if (cmd === "map" && args.length === 2) {
 			if (!(args[1] in VIMODE_COMMANDS)) {
-				errors.push(`unknown command, ${where}`);
+				skip("unknown command");
 				return;
 			}
 			keymap[vimodeTokenize(args[0]).join(" ")] = args[1];
 		} else if (cmd === "set" && args.length === 2) {
 			const [name, value] = args;
 			if (!(name in VIMODE_DEFAULT_SETTINGS)) {
-				errors.push(`unknown setting, ${where}`);
+				skip("unknown setting");
 				return;
 			}
 			const kind = typeof VIMODE_DEFAULT_SETTINGS[name];
 			settings[name] = kind === "boolean" ? value === "true"
 				: kind === "number" ? Number(value) : value;
 		} else {
-			errors.push(`cannot read, ${where}`);
+			skip("cannot read");
 		}
 	});
 	return { keymap, settings, errors };

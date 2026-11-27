@@ -4,17 +4,18 @@
 
 Vim-style keyboard navigation for Chromium browsers, configured from a dotfile, with a qutebrowser-style status bar.
 
-Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes its keymap from a plain text file instead of a settings form, so the keymap can live in your dotfiles and follow you from machine to machine. Import the file on the options page, and again after each change.
+Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes its keymap from a plain text file instead of a settings form, so the keymap can live in your dotfiles and follow you from machine to machine. Import the file with the `importConfig` command, and again after each change.
 
 ## Features
 
 - **Modes that work like Vimium's.** Normal mode runs the keymap. Focusing a text field, or pressing the key mapped to `enterInsertMode`, switches to insert mode, where every key goes to the page. Escape leaves insert mode, and leaving a focused field blurs it. Keys the keymap does not use still reach the page in normal mode, so a site's own shortcuts keep working.
 - **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode, and `-- HINT --` while link hints are up. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
-- **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
+- **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and listed, and the rest of the file still loads.
 - **Works in every frame,** including Google Docs, whose editor types into a hidden iframe.
 - **A help screen,** like Vimium's. The key mapped to `showHelp` (`?` is the natural choice) shows every mapped key, grouped, with what it does. Escape closes it.
 - **A key hint,** like qutebrowser's. Pause halfway through a key sequence (after `g`, say) and a panel above the status bar lists every mapping that continues it, with its command.
 - **A command line,** like qutebrowser's. The key mapped to `enterCommandMode` (`:` is the natural choice) opens a prompt in the status bar with every command listed above it, alongside its description and keys. The list narrows as you type, matching each word against the name and description. Tab and Shift-Tab (or the arrows, or Ctrl-N and Ctrl-P) walk the list, Enter runs the command, and Escape closes the prompt. Keys typed into it never reach the page.
+- **Find mode.** The key mapped to `enterFindMode` (`/` is the natural choice) opens a search prompt in the status bar. Every match on the page is highlighted as you type, the current one in orange and scrolled into view, with its position (`[3/17]`) on the right. Enter keeps the search and focuses the match's link, if it is in one, so a second Enter follows it; Escape puts the page back where it was. `performFind` and `performBackwardsFind` step through the matches, wrapping at the ends, and Escape in normal mode clears the highlights. A lowercase search ignores case; any capital letter makes it exact.
 - **Counts,** as in Vim: `3j` scrolls three steps, `2bd` closes two tabs.
 
 - **Link hints,** as in Vimium. A hint command labels every clickable thing on screen, in every frame, and typing a label picks it: click it, open it in a background or foreground tab, open several in a row, copy its address, or download it. Labels narrow as you type; Backspace undoes a character, Escape or a click cancels, holding Shift swaps opening in this tab and in a new one, and Space cycles labels that overlap.
@@ -31,13 +32,13 @@ Vimode is loaded unpacked:
 
 2. Open `brave://extensions` (or `chrome://extensions`), turn on Developer mode, click "Load unpacked" and choose the repo directory.
 
-3. Open Vimode's options page (right-click the extension icon, then Options) and import your config files (see below).
+3. On any web page, type `:importConfig` and Enter, then pick your config files (see below). Until a config is imported, `:` is the only key Vimode knows, so the command line can be reached.
 
-The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on Vimode's card (or "Reload extension" on its options page) and reload open tabs.
+The browser loads the extension straight from the repo directory, so after changing the code, run `:reloadExtension` (or press the reload button on Vimode's card). It reloads the tab it was run from; reload any other open tabs yourself.
 
 ## Configuration
 
-The config is one or two files, imported on the options page: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. Vimode keeps a copy, so import again after editing. The page shows what was imported, when, and any lines that were skipped.
+The config is one or two files, imported with `importConfig`, which opens a file picker: the keymap (any name, `vimoderc` by convention) and an optional `style.css`. Pick one or both at once; a file ending in `.css` is taken as the styles and anything else as the keymap, and a file not picked keeps what was imported before. Vimode keeps a copy, so import again after editing. The status bar confirms what was imported, and any lines that were skipped are listed in a panel.
 
 The file is the whole keymap: nothing is built in, so a key does something only if a line maps it. The syntax follows Vimium's:
 
@@ -101,6 +102,13 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 | `reload` | Reload the page. |
 | `copyCurrentUrl` | Copy the page's URL. |
 
+**Find**
+
+| Command | What it does |
+|---|---|
+| `enterFindMode` | Open the search prompt. |
+| `performFind`, `performBackwardsFind` | Go to the next or previous match of the last search. |
+
 **Tabs**
 
 | Command | What it does |
@@ -127,6 +135,13 @@ Most commands take a count, typed before the key. For `focusInput` the count pic
 | `LinkHints.activateModeToCopyLinkUrl` | `yf` | Copy its address. |
 | `LinkHints.activateModeToDownloadLink` | | Download it. |
 
+**Vimode**
+
+| Command | What it does |
+|---|---|
+| `importConfig` | Pick the config files to import (`vimoderc`, `style.css`, or both). |
+| `reloadExtension` | Reload Vimode from its directory, and the current tab with it. |
+
 ### Styles
 
 An imported `style.css` styles the hints. Its rules come after Vimode's defaults (Vimium's yellow labels), so they win:
@@ -143,7 +158,7 @@ An imported `style.css` styles the hints. Its rules come after Vimode's defaults
 
 ## How it works
 
-The options page parses the imported keymap and stores the result, with the raw files, in extension storage, where every tab's content script picks it up as soon as it changes. Importing is the one manual step: an extension cannot read or watch files on disk by itself.
+`importConfig` parses the picked keymap and stores the result, with the raw files, in extension storage, where every tab's content script picks it up as soon as it changes. Importing is the one manual step: an extension cannot read or watch files on disk by itself.
 
 Keys are handled by a content script in every frame. The status bar is drawn by the top frame, and other frames report their mode to it.
 
@@ -201,7 +216,7 @@ What is done, and what is planned.
 
 **Text**
 
-- [ ] Find mode
+- [x] Find mode
 - [ ] Visual and caret mode
 
 **Interface**
@@ -210,11 +225,13 @@ What is done, and what is planned.
 - [x] Command line
 - [x] Key hint for half-typed sequences
 - [x] Help screen
+- [x] Import and reload as commands, no settings page
 
 ## Limitations
 
 - Browsers keep extensions off their own pages (`chrome://` and `brave://` pages, the new tab page, the Web Store), so Vimode does nothing there.
 - Scrolling moves the page itself. A site that scrolls an inner panel instead of the page does not respond to the scroll commands yet.
+- Find mode searches the top page only. Text inside iframes, shadow roots, or drawn on a canvas (Google Docs' editor) is not found.
 - The status bar overlays the bottom 20px of the page, since an extension cannot resize the viewport.
 - `web.whatsapp.com` is excluded in `manifest.json`, since a page that is all typing has no use for normal mode. Edit `exclude_matches` to change that.
 - Hints come from a fixed list of clickable things (links, form controls, ARIA roles, click handlers, `tabindex`, Google's `jsaction`). An element that only a script listening on an ancestor makes clickable is not hinted. Vimium's text-filtering hint mode (`filterLinkHints`) is not implemented.

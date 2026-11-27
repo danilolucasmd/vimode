@@ -1,14 +1,15 @@
-// The background worker: runs the commands that need the tabs API, and
-// coordinates link hints across frames. The config is imported on the options
-// page and read from extension storage by whoever needs it.
+// The background worker: runs the commands that need the tabs or runtime
+// APIs, and coordinates link hints across frames. The config is imported by
+// the content script (importConfig) and read from extension storage.
 importScripts("commands.js");
 
-// The options page's reload button asks for the page back once the reloaded
-// extension is running again.
-chrome.storage.local.get("reopenOptions").then(({ reopenOptions }) => {
-	if (reopenOptions) {
-		chrome.storage.local.remove("reopenOptions");
-		chrome.runtime.openOptionsPage();
+// reloadExtension leaves the tab it was run from with a content script cut
+// off from the new extension, so the tab is reloaded once the new worker
+// starts.
+chrome.storage.local.get("reloadTab").then(({ reloadTab }) => {
+	if (typeof reloadTab === "number") {
+		chrome.storage.local.remove("reloadTab");
+		chrome.tabs.reload(reloadTab).catch(() => {});
 	}
 });
 
@@ -28,6 +29,10 @@ const windowTabs = (tab) => chrome.tabs.query({ windowId: tab.windowId });
 const activate = (id) => chrome.tabs.update(id, { active: true });
 
 const tabCommands = {
+	async reloadExtension(tab) {
+		await chrome.storage.local.set({ reloadTab: tab.id });
+		chrome.runtime.reload();
+	},
 	async nextTab(tab, count) {
 		const tabs = await windowTabs(tab);
 		await activate(tabs[(tab.index + count) % tabs.length].id);
