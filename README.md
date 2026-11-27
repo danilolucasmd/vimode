@@ -31,7 +31,7 @@ Vimode is loaded unpacked:
 
 3. Open Vimode's options page (right-click the extension icon, then Options) and import your config files (see below).
 
-The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on Vimode's card and reload open tabs.
+The browser loads the extension straight from the repo directory, so after changing the code, press the reload button on Vimode's card (or "Reload extension" on its options page) and reload open tabs.
 
 ## Configuration
 

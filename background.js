@@ -3,6 +3,15 @@
 // page and read from extension storage by whoever needs it.
 importScripts("commands.js");
 
+// The options page's reload button asks for the page back once the reloaded
+// extension is running again.
+chrome.storage.local.get("reopenOptions").then(({ reopenOptions }) => {
+	if (reopenOptions) {
+		chrome.storage.local.remove("reopenOptions");
+		chrome.runtime.openOptionsPage();
+	}
+});
+
 // ---- tab commands ---------------------------------------------------------
 
 // The tab each window showed before the current one, for visitPreviousTab.

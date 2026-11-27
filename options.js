@@ -7,6 +7,15 @@ const status = document.getElementById("status");
 
 document.getElementById("import").addEventListener("click", () => files.click());
 
+// The same as the reload button on the extension's card, for picking up code
+// changes. A reload closes this page, so the background worker reopens it
+// once it starts again (see reopenOptions there). Open tabs keep the old
+// content script until they are reloaded themselves.
+document.getElementById("reload").addEventListener("click", async () => {
+	await chrome.storage.local.set({ reopenOptions: true });
+	chrome.runtime.reload();
+});
+
 files.addEventListener("change", async () => {
 	const { source = {} } = await chrome.storage.local.get("source");
 	const imported = [];
