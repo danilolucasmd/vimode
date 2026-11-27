@@ -338,11 +338,21 @@ function toUrl(text) {
 	return null;
 }
 
+// A tab opened from this one goes next to it, after any it already opened
+// that are still beside it, as the browser does for a middle-click: links
+// opened one after another keep their order.
+async function openBeside(tab, url, active) {
+	const tabs = await windowTabs(tab);
+	let index = tab.index + 1;
+	while (tabs[index] && tabs[index].openerTabId === tab.id) index++;
+	await chrome.tabs.create({ url, active, index, openerTabId: tab.id });
+}
+
 async function open(tab, text, newTab, title) {
 	const url = toUrl(text);
 	if (url) {
 		await countOpen(url, title);
-		if (newTab) await chrome.tabs.create({ url, index: tab.index + 1, openerTabId: tab.id });
+		if (newTab) await openBeside(tab, url, true);
 		else await chrome.tabs.update(tab.id, { url });
 	} else {
 		// The browser's own default search engine.
@@ -368,6 +378,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 		importDefaults().then(() => sendResponse(true), () => sendResponse(false));
 		return true;
 	} else if (typeof msg.openUrl === "string") {
-		chrome.tabs.create({ url: msg.openUrl, active: !!msg.active, openerTabId: sender.tab.id }).catch(() => {});
+		openBeside(sender.tab, msg.openUrl, !!msg.active).catch(() => {});
 	}
 });
