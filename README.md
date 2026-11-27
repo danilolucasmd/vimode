@@ -68,6 +68,7 @@ map bd removeTab
 |---|---|---|
 | `scrollStepSize` | `60` | Pixels moved by `scrollDown`, `scrollUp`, `scrollLeft` and `scrollRight`. |
 | `grabBackFocus` | `false` | Undo a text field focusing itself as the page loads, until you press a key or click. Without it, a page that autofocuses a search box starts in insert mode. |
+| `passUnmappedKeys` | `true` | Whether a printable key with no mapping reaches the page in normal mode. Set it to `false` to drop such keys, as qutebrowser does; keys with Ctrl, Alt or Meta, and named keys like the arrows, space and Enter, still pass. Google Docs needs `false`: it takes any typed character as editing and switches to insert mode. |
 
 ### Commands
 

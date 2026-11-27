@@ -47,6 +47,12 @@ const VIMODE_COMMANDS = {
 const VIMODE_DEFAULT_SETTINGS = {
 	scrollStepSize: 60,
 	grabBackFocus: false,
+	// Whether a printable key the keymap does not map reaches the page in
+	// normal mode, as in Vimium. Off, it is dropped, like qutebrowser's
+	// input.forward_unbound_keys = auto: keys with Ctrl, Alt or Meta and named
+	// keys (arrows, space, Enter) still pass. Off is what keeps Google Docs in
+	// normal mode, since it refocuses its editor on any character typed.
+	passUnmappedKeys: true,
 };
 
 // "gbo" -> ["g", "b", "o"]; "<c-o>x" -> ["<c-o>", "x"]. A bracketed name is

@@ -167,6 +167,8 @@
 			reset();
 			onKeydown(e);
 			return;
+		} else if (!settings.passUnmappedKeys && t.length === 1) {
+			swallow(e);
 		}
 		changed();
 	}
