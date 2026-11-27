@@ -1,10 +1,6 @@
-<!-- Vimode logo: a v beside a green block cursor, over a status bar. The v is JetBrainsMono Nerd Font Mono Bold; the PNGs are rendered from this with rsvg-convert. -->
+<!-- Vimode logo: a v on the green of the insert-mode bar, over an underline cursor. The v is JetBrainsMono Nerd Font Mono Bold; the PNGs are rendered from this with rsvg-convert. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <clipPath id="r"><rect width="128" height="128" rx="28"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="128" height="128" fill="#2c292f"/>
-    <rect y="104" width="128" height="24" fill="#3a3a3a"/>
-  </g>
-  <text x="50" y="86" font-family="JetBrainsMono Nerd Font Mono" font-weight="bold" font-size="84" fill="#dddddd" text-anchor="middle">v</text>
-  <rect x="80" y="38" width="26" height="52" rx="3" fill="#a6e3a1"/>
+  <rect width="128" height="128" rx="28" fill="#a6e3a1"/>
+  <text x="64" y="92" font-family="JetBrainsMono Nerd Font Mono" font-weight="bold" font-size="104" fill="#1e1b22" text-anchor="middle">v</text>
+  <rect x="22" y="104" width="84" height="8" rx="4" fill="#1e1b22"/>
 </svg>
