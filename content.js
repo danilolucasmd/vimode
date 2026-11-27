@@ -753,9 +753,11 @@
 		const b = bar();
 		const html = document.documentElement;
 		if (!b.isConnected && html) html.append(b);
-		b.box.classList.toggle("insert", insert && !commandOpen);
+		// Every frame is sent the hints, so the top frame's own hintMode covers
+		// the tab. Hints take keys even from a focused field, so they win.
+		b.box.classList.toggle("insert", insert && !hintMode && !commandOpen);
 		b.box.classList.toggle("command", commandOpen);
-		setText(b.mode, insert ? "-- INSERT --" : "");
+		setText(b.mode, hintMode ? "-- HINT --" : insert ? "-- INSERT --" : "");
 		setText(b.keys, keys);
 		keyhint(b, commandOpen ? [] : pendingTokens);
 		setText(b.url, flashText || pretty(hovered || location.href));

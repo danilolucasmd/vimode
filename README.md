@@ -9,7 +9,7 @@ Vimode gives a browser a normal mode and an insert mode, like Vimium, and takes 
 ## Features
 
 - **Modes that work like Vimium's.** Normal mode runs the keymap. Focusing a text field, or pressing the key mapped to `enterInsertMode`, switches to insert mode, where every key goes to the page. Escape leaves insert mode, and leaving a focused field blurs it. Keys the keymap does not use still reach the page in normal mode, so a site's own shortcuts keep working.
-- **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
+- **A status bar.** A full-width strip along the bottom of every page: grey in normal mode, green with `-- INSERT --` in insert mode, and `-- HINT --` while link hints are up. The page's URL sits on the right (green for https), replaced by a hovered link's URL in blue, followed by any half-typed key sequence such as `2gb`. Clicks pass through the bar, and it hides in fullscreen.
 - **A config file.** Importing it applies it to every open tab at once. A line with a mistake is skipped and reported on the options page, and the rest of the file still loads.
 - **Works in every frame,** including Google Docs, whose editor types into a hidden iframe.
 - **A help screen,** like Vimium's. The key mapped to `showHelp` (`?` is the natural choice) shows every mapped key, grouped, with what it does. Escape closes it.
