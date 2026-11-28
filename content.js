@@ -984,7 +984,7 @@
 			.bar.command .mode, .bar.command .url, .bar.command .keys { display: none; }
 			.completion {
 				position: fixed; left: 0; right: 0; bottom: 20px; z-index: 2147483647;
-				height: 40vh; overflow-y: auto; display: none;
+				max-height: 40vh; overflow-y: auto; display: none;
 				background: #2c292f; color: #dddddd;
 				font: 11px/18px "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
 				pointer-events: none;
@@ -1754,7 +1754,8 @@
 			row.append(u, t);
 			list.append(row);
 		});
-		list.classList.add("open");
+		// Nothing matching shows no list at all, as in qutebrowser.
+		list.classList.toggle("open", matches.length > 0);
 		scrollToSelected(list);
 	}
 
@@ -1803,7 +1804,7 @@
 			row.append(n, d, k);
 			list.append(row);
 		});
-		list.classList.toggle("open", promptKind === "command");
+		list.classList.toggle("open", promptKind === "command" && matches.length > 0);
 		scrollToSelected(list);
 	}
 
