@@ -602,8 +602,14 @@
 	// typed characters faded. The user's style.css is appended after it, so
 	// any rule here can be overridden from the dotfiles. Matched characters
 	// carry .matched; each label is a .vimode-hint of one span per character.
+	// Vimode's hosts are custom elements that are never defined (a content
+	// script cannot define them), and pages may hide those until they are:
+	// Reddit hides them with visibility. A page's rules beat a shadow root's
+	// :host ones, unless :host is !important.
+	const HOST_CSS = ":host { all: initial !important; }";
+
 	const HINT_CSS = `
-		:host { all: initial; }
+		${HOST_CSS}
 		.layer { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none; }
 		.vimode-hint {
 			position: fixed; display: block; white-space: nowrap; overflow: hidden;
@@ -814,7 +820,9 @@
 			border: "2px solid #ff8040", borderRadius: "3px", boxSizing: "border-box",
 			zIndex: "2147483647", pointerEvents: "none",
 		});
-		host.attachShadow({ mode: "closed" }).append(box);
+		const style = document.createElement("style");
+		style.textContent = HOST_CSS;
+		host.attachShadow({ mode: "closed" }).append(style, box);
 		(document.documentElement || document).append(host);
 		setTimeout(() => host.remove(), 400);
 	}
@@ -956,7 +964,7 @@
 		host = document.createElement("vimode-bar");
 		const root = host.attachShadow({ mode: "closed" });
 		root.innerHTML = `<style>
-			:host { all: initial; }
+			${HOST_CSS}
 			.bar {
 				position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
 				box-sizing: border-box; height: 20px; padding: 0 8px;
