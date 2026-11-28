@@ -67,6 +67,7 @@ map bd removeTab
 | Setting | Default | What it does |
 |---|---|---|
 | `scrollStepSize` | `60` | Pixels moved by `scrollDown`, `scrollUp`, `scrollLeft` and `scrollRight`. |
+| `smoothScroll` | `false` | Scroll commands glide instead of jumping. Holding a step or page scroll key keeps gliding at a steady speed until it is let go, with no wait for the system's key repeat; a quick tap moves exactly one step. The mouse wheel or the page scrolling on its own stops the glide. |
 | `grabBackFocus` | `false` | Undo a text field focusing itself as the page loads, until you press a key or click. Without it, a page that autofocuses a search box starts in insert mode. |
 | `keyhintDelay` | `500` | Milliseconds a half-typed key sequence waits before the key hint panel appears. Negative turns it off. |
 | `linkHintCharacters` | `sadfjklewcmpgh` | The characters link hints are made of. Shown in capitals. |
@@ -196,7 +197,7 @@ What is done, and what is planned.
 **Scrolling**
 
 - [x] Step, half page, full page and edge scrolling
-- [ ] Smooth scrolling
+- [x] Smooth scrolling
 - [x] Scrolling inner panels, not only the page
 
 **Navigation**

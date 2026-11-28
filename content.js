@@ -186,13 +186,17 @@
 	}
 
 	window.addEventListener("keyup", (e) => {
+		if (holdKey && e.code === holdKey) releaseHold();
 		if (!swallowed.delete(e.code)) return;
 		e.preventDefault();
 		e.stopImmediatePropagation();
 		afterSwallowedKeyup(e);
 	}, true);
 	// A key let go while this window had lost focus never comes back here.
-	window.addEventListener("blur", () => swallowed.clear());
+	window.addEventListener("blur", () => {
+		swallowed.clear();
+		if (holdKey) releaseHold();
+	});
 
 	function reset() {
 		pending = [];
@@ -204,6 +208,12 @@
 		// editor to the top page as synthetic events, which would run the
 		// keymap on text being typed.
 		if (!e.isTrusted) return;
+		// A held scroll key glides on its own until released; the system's
+		// repeats would only add to it.
+		if (e.repeat && holdKey && e.code === holdKey) {
+			swallow(e);
+			return;
+		}
 		if (e.isComposing) return;
 		if (commandKey(e)) return;
 		if (helpKey(e)) return;
@@ -248,7 +258,9 @@
 			const command = keymap[seq];
 			const n = Math.max(1, parseInt(count, 10) || 1);
 			reset();
-			run(command, n);
+			const held = settings.smoothScroll && HOLDABLE.has(command);
+			if (held) holdKey = e.code;
+			run(command, n, held);
 		} else if (prefixes.has(seq)) {
 			swallow(e);
 			pending.push(t);
@@ -348,38 +360,136 @@
 	}
 
 	// amount(viewport): how far, given the target's visible size.
-	function scrollBy(axis, amount) {
+	function scrollBy(axis, amount, held) {
 		const target = scrollTarget(axis);
 		if (!target) return false;
 		const size = target === window
 			? (axis === "y" ? window.innerHeight : window.innerWidth)
 			: (axis === "y" ? target.clientHeight : target.clientWidth);
 		const d = amount(size);
-		target.scrollBy({ left: axis === "x" ? d : 0, top: axis === "y" ? d : 0, behavior: "instant" });
+		const glide = moveTo(target, axis, (from) => from + d);
+		if (held && glide) hold = { glide, step: d, moved: 0 };
 		return true;
 	}
 
 	function scrollToEdge(axis, end) {
 		const target = scrollTarget(axis);
 		if (!target) return false;
-		const el = target === window ? (document.scrollingElement || document.documentElement) : target;
-		const max = axis === "y" ? el.scrollHeight : el.scrollWidth;
-		target.scrollTo({ [axis === "y" ? "top" : "left"]: end ? max : 0, behavior: "instant" });
+		moveTo(target, axis, () => (end ? Infinity : 0));
 		return true;
+	}
+
+	function position(target, axis) {
+		if (target === window) return axis === "y" ? window.scrollY : window.scrollX;
+		return axis === "y" ? target.scrollTop : target.scrollLeft;
+	}
+
+	function maxPosition(target, axis) {
+		if (target === window) {
+			const root = document.scrollingElement || document.documentElement;
+			return axis === "y" ? root.scrollHeight - window.innerHeight : root.scrollWidth - window.innerWidth;
+		}
+		return axis === "y" ? target.scrollHeight - target.clientHeight : target.scrollWidth - target.clientWidth;
+	}
+
+	function setPosition(target, axis, pos) {
+		target.scrollTo({ [axis === "y" ? "top" : "left"]: pos, behavior: "instant" });
+	}
+
+	// Smooth scrolling chases a goal: every frame covers the same share of
+	// the distance left. A held key's repeats only push the goal further, so
+	// it glides at a steady speed, where the browser's behavior: "smooth"
+	// restarts its animation on every repeat and stutters. goal(from) gets
+	// the goal of a glide already under way, so presses add up.
+	const GLIDE_MS = 40;
+	const glides = [];
+	let glideFrame = 0;
+	let glideTime = 0;
+
+	function moveTo(target, axis, goal) {
+		let glide = glides.find((g) => g.target === target && g.axis === axis);
+		const to = Math.max(0, Math.min(goal(glide ? glide.goal : position(target, axis)), maxPosition(target, axis)));
+		if (!settings.smoothScroll) {
+			setPosition(target, axis, to);
+			return;
+		}
+		if (!glide) {
+			glide = { target, axis, pos: position(target, axis) };
+			glides.push(glide);
+		}
+		glide.goal = to;
+		if (!glideFrame) {
+			glideTime = performance.now();
+			glideFrame = requestAnimationFrame(glideStep);
+		}
+		return glide;
+	}
+
+	// A step or page scroll key moves for as long as it is held, as in
+	// Vimium, instead of waiting out the system's key repeat delay: at
+	// HOLD_STEPS steps a second from the moment it goes down, and never less
+	// than the one step a press asks for. holdKey is the key, in the frame
+	// that has it; hold is the glide it drives, in the frame that scrolls,
+	// which for Google Docs is the top one.
+	const HOLDABLE = new Set(["scrollDown", "scrollUp", "scrollLeft", "scrollRight",
+		"scrollPageDown", "scrollPageUp", "scrollFullPageDown", "scrollFullPageUp"]);
+	const HOLD_STEPS = 30;
+	let holdKey = null;
+	let hold = null;
+
+	function releaseHold() {
+		holdKey = null;
+		hold = null;
+		if (!isTop) window.top.postMessage({ [TAG]: { holdEnd: true } }, "*");
+	}
+
+	function clampPosition(target, axis, pos) {
+		return Math.max(0, Math.min(pos, maxPosition(target, axis)));
+	}
+
+	function glideStep(now) {
+		// A frame's timestamp can come before the press that asked for it.
+		const elapsed = Math.min(Math.max(now - glideTime, 4), 100);
+		const share = 1 - Math.exp(-elapsed / GLIDE_MS);
+		glideTime = now;
+		for (const glide of [...glides]) {
+			const { target, axis } = glide;
+			// Scrolled by something else (the mouse wheel, the page), or
+			// gone: that takes over and the glide stops.
+			const gone = target !== window && !target.isConnected;
+			if (gone || Math.abs(position(target, axis) - glide.pos) > 2) {
+				glides.splice(glides.indexOf(glide), 1);
+				if (hold && hold.glide === glide) hold = null;
+				continue;
+			}
+			const held = hold && hold.glide === glide;
+			if (held) {
+				const step = Math.abs(hold.step);
+				const before = Math.max(step, hold.moved);
+				hold.moved += (step * HOLD_STEPS * elapsed) / 1000;
+				const grow = Math.max(step, hold.moved) - before;
+				glide.goal = clampPosition(target, axis, glide.goal + Math.sign(hold.step) * grow);
+			}
+			const left = glide.goal - glide.pos;
+			glide.pos = Math.abs(left) < 1 ? glide.goal : glide.pos + left * share;
+			setPosition(target, axis, glide.pos);
+			if (glide.pos === glide.goal && !held) glides.splice(glides.indexOf(glide), 1);
+		}
+		glideFrame = glides.length ? requestAnimationFrame(glideStep) : 0;
 	}
 
 	const step = () => settings.scrollStepSize;
 
 	// Each returns false when nothing here scrolls that way (see above).
 	const scrollCommands = {
-		scrollDown: (n) => scrollBy("y", () => step() * n),
-		scrollUp: (n) => scrollBy("y", () => -step() * n),
-		scrollLeft: (n) => scrollBy("x", () => -step() * n),
-		scrollRight: (n) => scrollBy("x", () => step() * n),
-		scrollPageDown: (n) => scrollBy("y", (size) => (size / 2) * n),
-		scrollPageUp: (n) => scrollBy("y", (size) => -(size / 2) * n),
-		scrollFullPageDown: (n) => scrollBy("y", (size) => size * n),
-		scrollFullPageUp: (n) => scrollBy("y", (size) => -size * n),
+		scrollDown: (n, held) => scrollBy("y", () => step() * n, held),
+		scrollUp: (n, held) => scrollBy("y", () => -step() * n, held),
+		scrollLeft: (n, held) => scrollBy("x", () => -step() * n, held),
+		scrollRight: (n, held) => scrollBy("x", () => step() * n, held),
+		scrollPageDown: (n, held) => scrollBy("y", (size) => (size / 2) * n, held),
+		scrollPageUp: (n, held) => scrollBy("y", (size) => -(size / 2) * n, held),
+		scrollFullPageDown: (n, held) => scrollBy("y", (size) => size * n, held),
+		scrollFullPageUp: (n, held) => scrollBy("y", (size) => -size * n, held),
 		scrollToTop: () => scrollToEdge("y", false),
 		scrollToBottom: () => scrollToEdge("y", true),
 		scrollToLeft: () => scrollToEdge("x", false),
@@ -438,7 +548,8 @@
 		},
 	};
 
-	function run(command, n) {
+	// held: started by a key that is still down, for a scroll to keep going.
+	function run(command, n, held = false) {
 		const where = VIMODE_COMMANDS[command] && VIMODE_COMMANDS[command].where;
 		if (where === "tab") {
 			chrome.runtime.sendMessage({ tabCommand: command, count: n }).catch(() => {});
@@ -447,8 +558,8 @@
 		} else if (TOP_ONLY.has(command) && !isTop) {
 			window.top.postMessage({ [TAG]: { topCommand: command, count: n } }, "*");
 		} else if (Object.hasOwn(scrollCommands, command)) {
-			if (!scrollCommands[command](n) && !isTop) {
-				window.top.postMessage({ [TAG]: { topCommand: command, count: n } }, "*");
+			if (!scrollCommands[command](n, held) && !isTop) {
+				window.top.postMessage({ [TAG]: { topCommand: command, count: n, held } }, "*");
 			}
 		} else if (pageCommands[command]) {
 			pageCommands[command](n);
@@ -802,7 +913,8 @@
 		if (!msg || typeof msg !== "object") return;
 		if (typeof msg.flash === "string") flash(msg.flash);
 		else if (msg.leaveInsert || msg.acted) toTab(msg);
-		else if (TOP_ONLY.has(msg.topCommand) || Object.hasOwn(scrollCommands, msg.topCommand)) run(msg.topCommand, Math.max(1, Number(msg.count) || 1));
+		else if (msg.holdEnd) hold = null;
+		else if (TOP_ONLY.has(msg.topCommand) || Object.hasOwn(scrollCommands, msg.topCommand)) run(msg.topCommand, Math.max(1, Number(msg.count) || 1), msg.held === true);
 		else frames.set(e.source, msg);
 		changed();
 	});

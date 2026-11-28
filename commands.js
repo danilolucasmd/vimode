@@ -77,6 +77,9 @@ const VIMODE_HINT_MODES = {
 
 const VIMODE_DEFAULT_SETTINGS = {
 	scrollStepSize: 60,
+	// Whether scroll commands glide instead of jumping, as Vimium's
+	// smoothScroll, and keep going while their key is held.
+	smoothScroll: false,
 	grabBackFocus: false,
 	// Whether a printable key the keymap does not map reaches the page in
 	// normal mode, as in Vimium. Off, it is dropped, like qutebrowser's

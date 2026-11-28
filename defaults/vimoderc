@@ -30,6 +30,10 @@ set keyhintDelay 500
 # How far one scroll step goes, in pixels.
 set scrollStepSize 60
 
+# Make scroll commands glide instead of jumping, and keep gliding while the
+# key is held.
+set smoothScroll false
+
 # Modes
 map i enterInsertMode
 map : enterCommandMode
